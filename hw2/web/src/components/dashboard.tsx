@@ -19,7 +19,10 @@ export function Dashboard({ data }: DashboardProps) {
       </div>
 
       <main className="relative mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-8 md:px-8 md:py-10">
-        <DashboardHeader generatedAt={data.meta.generatedAt} />
+        <DashboardHeader
+          generatedAt={data.meta.generatedAt}
+          marketCapSource={data.meta.marketCapSource}
+        />
         <SummaryCards current={data.current} />
         <IndicatorExplainer />
         <MetricChart mode="mnav" series={data.series} />

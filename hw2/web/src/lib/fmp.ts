@@ -3,6 +3,24 @@ type FmpMarketCapItem = {
   marketCap?: number;
 };
 
+type FmpProfileItem = {
+  symbol?: string;
+  price?: number;
+  marketCap?: number;
+};
+
+type FmpSharesFloatItem = {
+  symbol?: string;
+  outstandingShares?: number;
+};
+
+export class FmpAccessError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FmpAccessError";
+  }
+}
+
 const FMP_BASE_URL = "https://financialmodelingprep.com";
 
 function requireFmpApiKey(): string {
@@ -13,10 +31,22 @@ function requireFmpApiKey(): string {
   return key;
 }
 
-async function fetchFmp<T>(
-  path: string,
-  searchParams: Record<string, string>,
-): Promise<T> {
+function isAccessDeniedMessage(payload: unknown): payload is string {
+  if (typeof payload !== "string") {
+    return false;
+  }
+  return /premium|restricted|subscription|legacy endpoint/i.test(payload);
+}
+
+function isErrorMessageObject(payload: unknown): payload is { "Error Message": string } {
+  return Boolean(
+    payload &&
+      typeof payload === "object" &&
+      typeof (payload as { "Error Message"?: unknown })["Error Message"] === "string",
+  );
+}
+
+async function fetchFmp(path: string, searchParams: Record<string, string>): Promise<unknown> {
   const url = new URL(`${FMP_BASE_URL}${path}`);
   for (const [key, value] of Object.entries(searchParams)) {
     url.searchParams.set(key, value);
@@ -29,15 +59,29 @@ async function fetchFmp<T>(
     next: { revalidate: 3600 },
   });
 
+  const text = await response.text();
+  let payload: unknown = text;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    payload = text;
+  }
+
   if (!response.ok) {
-    const text = await response.text();
     throw new Error(`FMP request failed (${response.status}): ${text}`);
   }
 
-  return (await response.json()) as T;
+  if (isAccessDeniedMessage(payload)) {
+    throw new FmpAccessError(payload);
+  }
+  if (isErrorMessageObject(payload)) {
+    throw new FmpAccessError(payload["Error Message"]);
+  }
+
+  return payload;
 }
 
-function isValidRow(item: FmpMarketCapItem): item is Required<FmpMarketCapItem> {
+function isValidMarketCapRow(item: FmpMarketCapItem): item is Required<FmpMarketCapItem> {
   return Boolean(
     item.date &&
       typeof item.marketCap === "number" &&
@@ -46,11 +90,33 @@ function isValidRow(item: FmpMarketCapItem): item is Required<FmpMarketCapItem> 
   );
 }
 
-export async function getMstrHistoricalMarketCap() {
-  const payload = await fetchFmp<unknown>(
-    "/stable/historical-market-capitalization",
-    { symbol: "MSTR" },
+function isValidProfileRow(item: FmpProfileItem): item is Required<FmpProfileItem> {
+  return Boolean(
+    item.symbol &&
+      typeof item.price === "number" &&
+      Number.isFinite(item.price) &&
+      item.price > 0 &&
+      typeof item.marketCap === "number" &&
+      Number.isFinite(item.marketCap) &&
+      item.marketCap > 0,
   );
+}
+
+function isValidSharesFloatRow(
+  item: FmpSharesFloatItem,
+): item is Required<FmpSharesFloatItem> {
+  return Boolean(
+    item.symbol &&
+      typeof item.outstandingShares === "number" &&
+      Number.isFinite(item.outstandingShares) &&
+      item.outstandingShares > 0,
+  );
+}
+
+export async function getMstrHistoricalMarketCap() {
+  const payload = await fetchFmp("/stable/historical-market-capitalization", {
+    symbol: "MSTR",
+  });
 
   const rows = Array.isArray(payload)
     ? payload
@@ -60,6 +126,30 @@ export async function getMstrHistoricalMarketCap() {
 
   return rows
     .filter((row): row is FmpMarketCapItem => typeof row === "object" && row !== null)
-    .filter(isValidRow)
+    .filter(isValidMarketCapRow)
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function getMstrProfile() {
+  const payload = await fetchFmp("/stable/profile", { symbol: "MSTR" });
+  const rows = Array.isArray(payload) ? payload : [];
+  const first = rows.find(
+    (row): row is FmpProfileItem => typeof row === "object" && row !== null,
+  );
+  if (!first || !isValidProfileRow(first)) {
+    return null;
+  }
+  return first;
+}
+
+export async function getMstrSharesFloat() {
+  const payload = await fetchFmp("/stable/shares-float", { symbol: "MSTR" });
+  const rows = Array.isArray(payload) ? payload : [];
+  const first = rows.find(
+    (row): row is FmpSharesFloatItem => typeof row === "object" && row !== null,
+  );
+  if (!first || !isValidSharesFloatRow(first)) {
+    return null;
+  }
+  return first;
 }

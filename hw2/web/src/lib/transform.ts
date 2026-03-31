@@ -4,7 +4,12 @@ import {
   getStrategyProfile,
   getStrategyTransactions,
 } from "@/lib/coingecko";
-import { getMstrHistoricalMarketCap } from "@/lib/fmp";
+import {
+  FmpAccessError,
+  getMstrHistoricalMarketCap,
+  getMstrProfile,
+  getMstrSharesFloat,
+} from "@/lib/fmp";
 import type {
   StrategyDashboardData,
   StrategySeriesRow,
@@ -105,6 +110,7 @@ function buildMergedSeries(
   holdingValueMap: Map<string, number>,
   btcPriceMap: Map<string, number>,
   marketCapMap: Map<string, number>,
+  fallbackMarketCap: number | null,
 ): StrategySeriesRow[] {
   const allDates = new Set<string>([
     ...holdingsMap.keys(),
@@ -134,6 +140,8 @@ function buildMergedSeries(
     }
     if (marketCapMap.has(date)) {
       lastMarketCap = marketCapMap.get(date) ?? null;
+    } else if (lastMarketCap === null && fallbackMarketCap && fallbackMarketCap > 0) {
+      lastMarketCap = fallbackMarketCap;
     }
 
     if (
@@ -198,14 +206,42 @@ function formatTransactions(rawRows: unknown[]): StrategyTransaction[] {
 }
 
 export async function getStrategyDashboardData(days = 365): Promise<StrategyDashboardData> {
-  const [profile, holdingChart, btcChart, marketCapRows, transactionRows] =
+  const [coingeckoProfile, holdingChart, btcChart, transactionRows, fmpProfile, fmpShares] =
     await Promise.all([
       getStrategyProfile(),
       getStrategyHoldingChart(days),
       getBitcoinMarketChart(days),
-      getMstrHistoricalMarketCap(),
       getStrategyTransactions(),
+      getMstrProfile().catch(() => null),
+      getMstrSharesFloat().catch(() => null),
     ]);
+
+  let marketCapRows: Array<{ date: string; marketCap: number }> = [];
+  let marketCapSource = "FMP historical market cap";
+  const notes: string[] = [
+    "mNAV formula in this project: marketCap / (btcHoldings x btcPrice).",
+    "Market cap on non-trading dates is forward-filled to align daily BTC data.",
+    "All values are USD-based daily approximations for educational analysis.",
+  ];
+
+  try {
+    marketCapRows = await getMstrHistoricalMarketCap();
+    if (marketCapRows.length === 0) {
+      throw new FmpAccessError("FMP returned empty historical market-cap rows.");
+    }
+  } catch (error) {
+    const isAccessIssue = error instanceof FmpAccessError;
+    if (isAccessIssue) {
+      notes.push(
+        "FMP plan does not provide historical MSTR market cap. Dashboard falls back to current market cap from FMP profile.",
+      );
+    } else {
+      notes.push(
+        "FMP historical market cap fetch failed. Dashboard falls back to current market cap if available.",
+      );
+    }
+    marketCapSource = "FMP profile current marketCap (constant fallback)";
+  }
 
   const holdingsMap = pointsToMap(holdingChart.holdings);
   const holdingValueMap = pointsToMap(holdingChart.holding_value_in_usd);
@@ -213,12 +249,27 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   const marketCapMap = new Map<string, number>(
     marketCapRows.map((row) => [row.date, row.marketCap]),
   );
+  const fallbackFromFmpProfile = toNumber(fmpProfile?.marketCap);
+  const fallbackFromCoinGecko =
+    toNumber(coingeckoProfile.m_nav) && toNumber(coingeckoProfile.total_treasury_value_usd)
+      ? (toNumber(coingeckoProfile.m_nav) ?? 0) *
+        (toNumber(coingeckoProfile.total_treasury_value_usd) ?? 0)
+      : null;
+  const fallbackMarketCap =
+    marketCapRows.length > 0 ? null : fallbackFromFmpProfile ?? fallbackFromCoinGecko;
+
+  if (marketCapRows.length === 0 && (!fallbackMarketCap || fallbackMarketCap <= 0)) {
+    throw new Error(
+      "No usable market-cap data for MSTR from the current FMP subscription. Please upgrade FMP plan or switch ticker.",
+    );
+  }
 
   const mergedSeries = buildMergedSeries(
     holdingsMap,
     holdingValueMap,
     btcPriceMap,
     marketCapMap,
+    fallbackMarketCap,
   );
   const series = sliceSeriesByDays(mergedSeries, days);
   const lastRow = series[series.length - 1];
@@ -227,14 +278,22 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     throw new Error("No merged series data available. Check API keys and plan limits.");
   }
 
-  const profileMNav = toNumber(profile.m_nav);
+  const profileMNav = toNumber(coingeckoProfile.m_nav);
+  if (fmpShares?.outstandingShares) {
+    notes.push(
+      `FMP shares-float snapshot available: outstandingShares=${Math.round(
+        fmpShares.outstandingShares,
+      ).toLocaleString("en-US")}.`,
+    );
+  }
 
   return {
     meta: {
       company: "Strategy",
-      ticker: profile.symbol ?? "MSTR",
+      ticker: coingeckoProfile.symbol ?? fmpProfile?.symbol ?? "MSTR",
       rangeDays: days,
       generatedAt: new Date().toISOString(),
+      marketCapSource,
     },
     current: {
       btcHoldings: lastRow.btcHoldings,
@@ -247,10 +306,6 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     },
     series,
     transactions: formatTransactions(transactionRows),
-    notes: [
-      "mNAV formula in this project: marketCap / (btcHoldings x btcPrice).",
-      "Market cap on non-trading dates is forward-filled to align daily BTC data.",
-      "All values are USD-based daily approximations for educational analysis.",
-    ],
+    notes,
   };
 }

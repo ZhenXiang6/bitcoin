@@ -1,36 +1,122 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Strategy mNAV Dashboard
 
-## Getting Started
+This project is a DAT-focused web dashboard for `Strategy (MSTR)` using:
 
-First, run the development server:
+1. `CoinGecko API` for BTC treasury holdings and BTC market data
+2. `FMP API` for MSTR historical market cap
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Core indicator:
+
+```text
+mNAV = MarketCap / (BTC_Holdings x BTC_Price)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 1. Prerequisites
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Required:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. `Node.js >= 20`
+2. `npm`
+3. `COINGECKO_API_KEY`
+4. `FMP_API_KEY`
 
-## Learn More
+## 2. Environment Variables
 
-To learn more about Next.js, take a look at the following resources:
+Create `web/.env.local`:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```env
+COINGECKO_API_KEY=your_coingecko_key
+FMP_API_KEY=your_fmp_key
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Do not expose these keys in client-side code.
 
-## Deploy on Vercel
+## 3. Run on Localhost
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+From `web/`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+Useful commands:
+
+```bash
+npm run lint
+npm run build
+```
+
+## 4. API Endpoint
+
+Dashboard data endpoint:
+
+```text
+GET /api/strategy-mnav?days=365
+```
+
+`days` supports range `30` to `730`.
+
+## 5. Deploy to Vercel (Dashboard Method)
+
+Recommended method:
+
+1. Push this repository to GitHub.
+2. In Vercel, click `Add New Project` and import the repository.
+3. Set `Root Directory` to `web`.
+4. In `Project Settings -> Environment Variables`, add:
+   - `COINGECKO_API_KEY`
+   - `FMP_API_KEY`
+5. Deploy.
+
+After deployment, verify:
+
+1. `/` page renders charts and summary cards.
+2. `/api/strategy-mnav?days=365` returns JSON.
+
+## 6. Deploy to Vercel (CLI Method)
+
+Install Vercel CLI:
+
+```bash
+npm install -g vercel
+```
+
+From `web/`:
+
+```bash
+vercel
+```
+
+For production:
+
+```bash
+vercel --prod
+```
+
+If this is the first deploy, follow prompts to link/create project and set root directory as `web`.
+
+## 7. Troubleshooting
+
+If homepage shows "Failed to load Strategy dashboard":
+
+1. Check `web/.env.local` keys are present and correct.
+2. Confirm API key quotas are not exhausted.
+3. Confirm `/api/strategy-mnav?days=365` response.
+
+If Vercel deployment succeeds but data is empty:
+
+1. Recheck environment variables in Vercel project settings.
+2. Redeploy after updating variables.
+
+If FMP returns 402 for `MSTR`:
+
+1. Your plan may block `historical-market-capitalization` for this symbol.
+2. The app will automatically fallback to current `marketCap` from `stable/profile`.
+3. Check the `Market Cap Source` label on the page header to confirm active mode.

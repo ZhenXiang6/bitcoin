@@ -49,13 +49,31 @@ export function MetricChart({ mode, series }: MetricChartProps) {
               tick={{ fill: "#cbd5e1", fontSize: 12 }}
               minTickGap={32}
             />
-            <YAxis
-              width={84}
-              tick={{ fill: "#cbd5e1", fontSize: 12 }}
-              tickFormatter={(value) =>
-                isMnav ? formatNumber(Number(value)) : formatCurrencyCompact(Number(value))
-              }
-            />
+            {isMnav ? (
+              <>
+                <YAxis
+                  yAxisId="left"
+                  width={72}
+                  tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                  tickFormatter={(value) => formatNumber(Number(value))}
+                  domain={["auto", "auto"]}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  width={72}
+                  tick={{ fill: "#fda4af", fontSize: 12 }}
+                  tickFormatter={(value) => formatPercent(Number(value))}
+                  domain={["auto", "auto"]}
+                />
+              </>
+            ) : (
+              <YAxis
+                width={84}
+                tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                tickFormatter={(value) => formatCurrencyCompact(Number(value))}
+              />
+            )}
             <Tooltip
               contentStyle={{
                 border: "1px solid rgba(255,255,255,0.2)",
@@ -82,6 +100,7 @@ export function MetricChart({ mode, series }: MetricChartProps) {
                   type="monotone"
                   dataKey="mNav"
                   name="mNAV"
+                  yAxisId="left"
                   stroke="#f97316"
                   strokeWidth={2.2}
                   dot={false}
@@ -91,6 +110,7 @@ export function MetricChart({ mode, series }: MetricChartProps) {
                   type="monotone"
                   dataKey="premiumToNavPct"
                   name="Premium %"
+                  yAxisId="right"
                   stroke="#fb7185"
                   strokeWidth={1.8}
                   dot={false}

@@ -1,8 +1,9 @@
 type DashboardHeaderProps = {
   generatedAt: string;
+  marketCapSource: string;
 };
 
-export function DashboardHeader({ generatedAt }: DashboardHeaderProps) {
+export function DashboardHeader({ generatedAt, marketCapSource }: DashboardHeaderProps) {
   const generatedText = new Date(generatedAt).toLocaleString("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -22,6 +23,7 @@ export function DashboardHeader({ generatedAt }: DashboardHeaderProps) {
         valuation pressure over time.
       </p>
       <p className="mt-5 text-xs text-slate-300">Last generated: {generatedText}</p>
+      <p className="mt-1 text-xs text-slate-300">Market Cap Source: {marketCapSource}</p>
     </header>
   );
 }

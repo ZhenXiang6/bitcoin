@@ -23,6 +23,7 @@ export type StrategyDashboardData = {
     ticker: string;
     rangeDays: number;
     generatedAt: string;
+    marketCapSource: string;
   };
   current: {
     btcHoldings: number;
