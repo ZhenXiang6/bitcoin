@@ -10,8 +10,12 @@ import {
   getMstrProfile,
   getMstrSharesFloat,
 } from "@/lib/fmp";
-import { getStrategySharesOutstandingSeries } from "@/lib/sec";
-import type { SharesOutstandingPoint } from "@/lib/sec";
+import {
+  getStrategyCashSeries,
+  getStrategyDebtSeries,
+  getStrategySharesOutstandingSeries,
+} from "@/lib/sec";
+import type { FinancialMetricPoint, SharesOutstandingPoint } from "@/lib/sec";
 import type {
   StrategyDashboardData,
   StrategySeriesRow,
@@ -250,6 +254,10 @@ function buildEstimatedMarketCapRows(
   return output;
 }
 
+function financialPointsToMap(points: FinancialMetricPoint[]) {
+  return new Map<string, number>(points.map((point) => [point.date, point.value]));
+}
+
 function addRollingMetrics(series: StrategySeriesRow[]) {
   const withMetrics = [...series];
   for (let index = 0; index < withMetrics.length; index += 1) {
@@ -278,6 +286,8 @@ function buildMergedSeries(
   holdingValueMap: Map<string, number>,
   btcPriceMap: Map<string, number>,
   marketCapMap: Map<string, number>,
+  debtMap: Map<string, number>,
+  cashMap: Map<string, number>,
   sharesOutstandingMap: Map<string, number>,
   avgEntryPriceMap: Map<string, number>,
   fallbackMarketCap: number | null,
@@ -289,6 +299,8 @@ function buildMergedSeries(
     ...holdingValueMap.keys(),
     ...btcPriceMap.keys(),
     ...marketCapMap.keys(),
+    ...debtMap.keys(),
+    ...cashMap.keys(),
     ...sharesOutstandingMap.keys(),
     ...avgEntryPriceMap.keys(),
   ]);
@@ -298,6 +310,8 @@ function buildMergedSeries(
   let lastHoldingValue: number | null = null;
   let lastBtcPrice: number | null = null;
   let lastMarketCap: number | null = null;
+  let lastTotalDebt: number | null = null;
+  let lastCashAndEquivalents: number | null = null;
   let lastSharesOutstanding: number | null = fallbackShares;
   let lastAvgEntryPriceUsd: number | null = fallbackAvgEntryPriceUsd;
 
@@ -317,6 +331,12 @@ function buildMergedSeries(
       lastMarketCap = marketCapMap.get(date) ?? null;
     } else if (lastMarketCap === null && fallbackMarketCap && fallbackMarketCap > 0) {
       lastMarketCap = fallbackMarketCap;
+    }
+    if (debtMap.has(date)) {
+      lastTotalDebt = debtMap.get(date) ?? lastTotalDebt;
+    }
+    if (cashMap.has(date)) {
+      lastCashAndEquivalents = cashMap.get(date) ?? lastCashAndEquivalents;
     }
     if (sharesOutstandingMap.has(date)) {
       lastSharesOutstanding = sharesOutstandingMap.get(date) ?? lastSharesOutstanding;
@@ -343,7 +363,15 @@ function buildMergedSeries(
 
     const holdingValueUsd =
       lastHoldingValue !== null && lastHoldingValue > 0 ? lastHoldingValue : btcNavUsd;
-    const mNav = lastMarketCap / btcNavUsd;
+    const totalDebtUsd =
+      lastTotalDebt !== null && lastTotalDebt >= 0 ? lastTotalDebt : null;
+    const cashAndEquivalentsUsd =
+      lastCashAndEquivalents !== null && lastCashAndEquivalents >= 0
+        ? lastCashAndEquivalents
+        : null;
+    const enterpriseValueUsd =
+      lastMarketCap + (totalDebtUsd ?? 0) - (cashAndEquivalentsUsd ?? 0);
+    const mNav = enterpriseValueUsd / btcNavUsd;
     const premiumToNavPct = (mNav - 1) * 100;
     const sharesOutstanding =
       lastSharesOutstanding !== null && lastSharesOutstanding > 0 ? lastSharesOutstanding : null;
@@ -365,6 +393,9 @@ function buildMergedSeries(
       holdingValueUsd,
       btcNavUsd,
       marketCapUsd: lastMarketCap,
+      enterpriseValueUsd,
+      totalDebtUsd,
+      cashAndEquivalentsUsd,
       sharesOutstanding,
       avgEntryPriceUsd,
       unrealizedPnlUsd,
@@ -430,6 +461,8 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     rawTransactionRows,
     yahooCloseRows,
     secSharesRows,
+    secDebtRows,
+    secCashRows,
     fmpProfile,
     fmpShares,
   ] = await Promise.all([
@@ -439,6 +472,8 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     getStrategyTransactions(),
     getYahooHistoricalCloseSeries("MSTR", yahooDays).catch(() => []),
     getStrategySharesOutstandingSeries().catch(() => []),
+    getStrategyDebtSeries().catch(() => []),
+    getStrategyCashSeries().catch(() => []),
     getMstrProfile().catch(() => null),
     getMstrSharesFloat().catch(() => null),
   ]);
@@ -454,9 +489,10 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   const avgEntryRows = buildAverageEntryRows(transactionRows, fallbackAvgEntryPriceUsd);
 
   const notes: string[] = [
-    "mNAV formula in this project: marketCap / (btcHoldings x btcPrice).",
-    "BTC NAV per Share is estimated with forward-filled shares outstanding.",
-    "Estimated BPS and Estimated BTC Yield use outstanding shares rather than fully diluted share assumptions.",
+    "mNAV formula in this project: enterpriseValue / (btcHoldings x btcPrice).",
+    "Enterprise Value is estimated as marketCap + totalDebt - cash and cash equivalents.",
+    "BTC NAV equals Strategy BTC holdings multiplied by BTC/USD spot price.",
+    "Market cap is reconstructed from Yahoo close and shares-outstanding data when available.",
     "All values are USD-based educational estimates and should be interpreted with methodology notes.",
   ];
 
@@ -524,6 +560,16 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   if (secSharesRows.length === 0) {
     notes.push("SEC shares-outstanding series unavailable in this runtime.");
   }
+  if (secDebtRows.length === 0) {
+    notes.push(
+      "SEC total-debt series unavailable in this runtime. Enterprise Value currently assumes zero debt where no filing data is available.",
+    );
+  }
+  if (secCashRows.length === 0) {
+    notes.push(
+      "SEC cash-and-equivalents series unavailable in this runtime. Enterprise Value currently assumes zero cash where no filing data is available.",
+    );
+  }
   if (avgEntryRows.length === 0 && fallbackAvgEntryPriceUsd) {
     notes.push(
       "Daily average-entry reconstruction was incomplete. Used current average entry price as fallback for unrealized PnL estimates.",
@@ -536,6 +582,8 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   const marketCapMap = new Map<string, number>(
     marketCapRows.map((row) => [row.date, row.marketCap]),
   );
+  const debtMap = financialPointsToMap(secDebtRows);
+  const cashMap = financialPointsToMap(secCashRows);
   const sharesOutstandingMap = new Map<string, number>(
     secSharesRows.map((row) => [row.date, row.sharesOutstanding]),
   );
@@ -548,6 +596,8 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     holdingValueMap,
     btcPriceMap,
     marketCapMap,
+    debtMap,
+    cashMap,
     sharesOutstandingMap,
     avgEntryPriceMap,
     fallbackMarketCap,
@@ -574,6 +624,9 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
       btcPriceUsd: lastRow.btcPriceUsd,
       btcNavUsd: lastRow.btcNavUsd,
       marketCapUsd: lastRow.marketCapUsd,
+      enterpriseValueUsd: lastRow.enterpriseValueUsd,
+      totalDebtUsd: lastRow.totalDebtUsd,
+      cashAndEquivalentsUsd: lastRow.cashAndEquivalentsUsd,
       sharesOutstanding: lastRow.sharesOutstanding,
       avgEntryPriceUsd: lastRow.avgEntryPriceUsd,
       unrealizedPnlUsd: lastRow.unrealizedPnlUsd,

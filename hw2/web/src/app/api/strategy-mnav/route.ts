@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { DATA_REVALIDATE_SECONDS } from "@/lib/config";
 import { getStrategyDashboardData } from "@/lib/transform";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
     const data = await getStrategyDashboardData(days);
     return NextResponse.json(data, {
       headers: {
-        "cache-control": "s-maxage=1800, stale-while-revalidate=3600",
+        "cache-control": `s-maxage=${DATA_REVALIDATE_SECONDS}, stale-while-revalidate=${DATA_REVALIDATE_SECONDS}`,
       },
     });
   } catch (error) {

@@ -1,3 +1,5 @@
+import { DATA_REVALIDATE_SECONDS } from "@/lib/config";
+
 type CoinGeckoChartPoint = [number, number];
 type CoinGeckoTier = "demo" | "pro";
 
@@ -101,7 +103,7 @@ async function fetchCoinGecko<T>(path: string, searchParams: Record<string, stri
   const response = await fetch(url.toString(), {
     method: "GET",
       headers: createCoinGeckoHeaders(tier, apiKey),
-    next: { revalidate: 3600 },
+    next: { revalidate: DATA_REVALIDATE_SECONDS },
   });
 
   if (!response.ok) {

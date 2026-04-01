@@ -5,6 +5,9 @@ export type StrategySeriesRow = {
   holdingValueUsd: number;
   btcNavUsd: number;
   marketCapUsd: number;
+  enterpriseValueUsd: number;
+  totalDebtUsd: number | null;
+  cashAndEquivalentsUsd: number | null;
   sharesOutstanding: number | null;
   avgEntryPriceUsd: number | null;
   unrealizedPnlUsd: number | null;
@@ -39,6 +42,9 @@ export type StrategyDashboardData = {
     btcPriceUsd: number;
     btcNavUsd: number;
     marketCapUsd: number;
+    enterpriseValueUsd: number;
+    totalDebtUsd: number | null;
+    cashAndEquivalentsUsd: number | null;
     sharesOutstanding: number | null;
     avgEntryPriceUsd: number | null;
     unrealizedPnlUsd: number | null;

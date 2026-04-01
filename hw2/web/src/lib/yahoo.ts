@@ -1,4 +1,5 @@
 import YahooFinance from "yahoo-finance2";
+import { DATA_REVALIDATE_SECONDS } from "@/lib/config";
 
 type YahooChartResponse = {
   chart?: {
@@ -158,7 +159,7 @@ export async function getYahooHistoricalCloseSeries(
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
       },
-      next: { revalidate: 1800 },
+      next: { revalidate: DATA_REVALIDATE_SECONDS },
     });
 
     if (!response.ok) {

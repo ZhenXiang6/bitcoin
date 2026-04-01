@@ -1,15 +1,16 @@
+import { AiSummary } from "@/components/ai-summary";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { IndicatorExplainer } from "@/components/indicator-explainer";
 import { MetricChart } from "@/components/metric-chart";
 import { SummaryCards } from "@/components/summary-cards";
-import { TransactionTable } from "@/components/transaction-table";
 import type { StrategyDashboardData } from "@/lib/types";
 
 type DashboardProps = {
   data: StrategyDashboardData;
+  summary: string | null;
 };
 
-export function Dashboard({ data }: DashboardProps) {
+export function Dashboard({ data, summary }: DashboardProps) {
   return (
     <div className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0">
@@ -27,10 +28,7 @@ export function Dashboard({ data }: DashboardProps) {
         <IndicatorExplainer />
         <MetricChart mode="mnav" series={data.series} />
         <MetricChart mode="valuation" series={data.series} />
-        <MetricChart mode="costBasis" series={data.series} />
-        <MetricChart mode="perShare" series={data.series} />
-        <MetricChart mode="treasury" series={data.series} />
-        <TransactionTable transactions={data.transactions} />
+        <AiSummary summary={summary} />
 
         <section className="rounded-2xl border border-white/20 bg-black/20 p-4 text-xs leading-6 text-slate-300">
           <p className="font-semibold uppercase tracking-[0.12em] text-slate-200">

@@ -1,3 +1,5 @@
+import { DATA_REVALIDATE_SECONDS } from "@/lib/config";
+
 type SecConceptResponse = {
   units?: Record<
     string,
@@ -12,6 +14,11 @@ type SecConceptResponse = {
 export type SharesOutstandingPoint = {
   date: string;
   sharesOutstanding: number;
+};
+
+export type FinancialMetricPoint = {
+  date: string;
+  value: number;
 };
 
 const STRATEGY_CIK = "0001050446";
@@ -33,20 +40,22 @@ function normalizeConceptRows(payload: SecConceptResponse) {
     ...(payload.units?.shares ?? []),
     ...(payload.units?.Shares ?? []),
     ...(payload.units?.SHARES ?? []),
+    ...(payload.units?.USD ?? []),
+    ...(payload.units?.usd ?? []),
   ];
 
-  const output: SharesOutstandingPoint[] = [];
+  const output: FinancialMetricPoint[] = [];
   for (const row of rows) {
     const date = row.end ?? row.filed;
     if (
       typeof date === "string" &&
       typeof row.val === "number" &&
       Number.isFinite(row.val) &&
-      row.val > 0
+      row.val >= 0
     ) {
       output.push({
         date: normalizeDate(date),
-        sharesOutstanding: row.val,
+        value: row.val,
       });
     }
   }
@@ -61,11 +70,11 @@ async function fetchSecConcept(taxonomy: string, concept: string) {
       accept: "application/json",
       "user-agent": secUserAgent(),
     },
-    next: { revalidate: 3600 * 24 },
+    next: { revalidate: DATA_REVALIDATE_SECONDS },
   });
 
   if (response.status === 404) {
-    return [] as SharesOutstandingPoint[];
+    return [] as FinancialMetricPoint[];
   }
 
   if (!response.ok) {
@@ -79,23 +88,98 @@ async function fetchSecConcept(taxonomy: string, concept: string) {
   return normalizeConceptRows(payload);
 }
 
+function dedupeByDate(points: FinancialMetricPoint[]) {
+  const deduped = new Map<string, number>();
+  for (const point of points.sort((a, b) => a.date.localeCompare(b.date))) {
+    deduped.set(point.date, point.value);
+  }
+  return Array.from(deduped.entries()).map(([date, value]) => ({ date, value }));
+}
+
+async function getFirstAvailableConceptSeries(
+  candidates: Array<{ taxonomy: string; concept: string }>,
+) {
+  for (const candidate of candidates) {
+    const rows = await fetchSecConcept(candidate.taxonomy, candidate.concept);
+    if (rows.length > 0) {
+      return dedupeByDate(rows);
+    }
+  }
+  return [] as FinancialMetricPoint[];
+}
+
+function sumSeriesByDate(seriesList: FinancialMetricPoint[][]) {
+  const sumByDate = new Map<string, number>();
+  for (const series of seriesList) {
+    for (const point of series) {
+      sumByDate.set(point.date, (sumByDate.get(point.date) ?? 0) + point.value);
+    }
+  }
+  return Array.from(sumByDate.entries())
+    .map(([date, value]) => ({ date, value }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export async function getStrategySharesOutstandingSeries(): Promise<SharesOutstandingPoint[]> {
-  const conceptCandidates = await Promise.all([
-    fetchSecConcept("dei", "EntityCommonStockSharesOutstanding"),
-    fetchSecConcept("dei", "CommonStockSharesOutstanding"),
-    fetchSecConcept("us-gaap", "CommonStockSharesOutstanding"),
+  const merged = await getFirstAvailableConceptSeries([
+    { taxonomy: "dei", concept: "EntityCommonStockSharesOutstanding" },
+    { taxonomy: "dei", concept: "CommonStockSharesOutstanding" },
+    { taxonomy: "us-gaap", concept: "CommonStockSharesOutstanding" },
   ]);
 
-  const merged = conceptCandidates.flat();
-  merged.sort((a, b) => a.date.localeCompare(b.date));
+  return merged.map((row) => ({
+    date: row.date,
+    sharesOutstanding: row.value,
+  }));
+}
 
-  const deduped = new Map<string, number>();
-  for (const row of merged) {
-    deduped.set(row.date, row.sharesOutstanding);
+export async function getStrategyCashSeries(): Promise<FinancialMetricPoint[]> {
+  return getFirstAvailableConceptSeries([
+    { taxonomy: "us-gaap", concept: "CashAndCashEquivalentsAtCarryingValue" },
+    {
+      taxonomy: "us-gaap",
+      concept: "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    },
+  ]);
+}
+
+export async function getStrategyDebtSeries(): Promise<FinancialMetricPoint[]> {
+  const totalDebt = await getFirstAvailableConceptSeries([
+    { taxonomy: "us-gaap", concept: "Debt" },
+    { taxonomy: "us-gaap", concept: "LongTermDebtAndFinanceLeaseObligations" },
+    { taxonomy: "us-gaap", concept: "LongTermDebtAndCapitalLeaseObligations" },
+    { taxonomy: "us-gaap", concept: "LongTermDebt" },
+  ]);
+
+  if (totalDebt.length > 0) {
+    return totalDebt;
   }
 
-  return Array.from(deduped.entries()).map(([date, sharesOutstanding]) => ({
-    date,
-    sharesOutstanding,
-  }));
+  const [currentDebt, nonCurrentDebt] = await Promise.all([
+    getFirstAvailableConceptSeries([
+      { taxonomy: "us-gaap", concept: "ShortTermBorrowings" },
+      { taxonomy: "us-gaap", concept: "LongTermDebtCurrentMaturities" },
+      {
+        taxonomy: "us-gaap",
+        concept: "LongTermDebtAndFinanceLeaseObligationsCurrent",
+      },
+      {
+        taxonomy: "us-gaap",
+        concept: "LongTermDebtAndCapitalLeaseObligationsCurrent",
+      },
+    ]),
+    getFirstAvailableConceptSeries([
+      { taxonomy: "us-gaap", concept: "LongTermDebtNoncurrent" },
+      {
+        taxonomy: "us-gaap",
+        concept: "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
+      },
+      {
+        taxonomy: "us-gaap",
+        concept: "LongTermDebtAndCapitalLeaseObligationsNoncurrent",
+      },
+    ]),
+  ]);
+
+  return sumSeriesByDate([currentDebt, nonCurrentDebt]);
 }

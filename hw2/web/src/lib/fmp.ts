@@ -1,3 +1,5 @@
+import { DATA_REVALIDATE_SECONDS } from "@/lib/config";
+
 type FmpMarketCapItem = {
   date?: string;
   marketCap?: number;
@@ -56,7 +58,7 @@ async function fetchFmp(path: string, searchParams: Record<string, string>): Pro
   const response = await fetch(url.toString(), {
     method: "GET",
     headers: { accept: "application/json" },
-    next: { revalidate: 3600 },
+    next: { revalidate: DATA_REVALIDATE_SECONDS },
   });
 
   const text = await response.text();

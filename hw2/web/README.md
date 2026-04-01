@@ -1,40 +1,41 @@
 # Strategy mNAV Dashboard
 
-This project is a DAT-focused web dashboard for `Strategy (MSTR)` using:
-
-1. `CoinGecko API` for BTC treasury holdings and BTC market data
-2. `yahoo-finance2` (with Yahoo chart endpoint fallback) for MSTR historical close
-3. `SEC Company Facts` for shares outstanding snapshots
-4. `FMP API` as optional fallback when Yahoo/SEC data is unavailable
-
-Core indicator:
+This project is a DAT-focused dashboard centered on one main indicator:
 
 ```text
-mNAV = MarketCap / (BTC_Holdings x BTC_Price)
+mNAV = (MarketCap + TotalDebt - CashAndCashEquivalents) / (BTC_Holdings x BTC_Price)
 ```
 
-## 1. Prerequisites
+The site uses:
 
-Required:
+1. `CoinGecko` for Strategy BTC holdings and BTC price
+2. `Yahoo Finance` for MSTR daily close
+3. `SEC` for shares outstanding, cash, and debt snapshots
+4. `OpenAI` optionally for a low-cost AI summary
 
-1. `Node.js >= 20`
-2. `npm`
-3. `COINGECKO_API_KEY`
-4. `FMP_API_KEY` (optional but recommended as fallback)
-
-## 2. Environment Variables
+## 1. Required Environment Variables
 
 Create `web/.env.local`:
 
 ```env
 COINGECKO_API_KEY=your_coingecko_key
-FMP_API_KEY=your_fmp_key
 SEC_USER_AGENT=your_app_name/1.0 (contact: your_email@example.com)
 ```
 
-Do not expose these keys in client-side code.
+Optional:
 
-## 3. Run on Localhost
+```env
+OPENAI_API_KEY=your_openai_key
+OPENAI_SUMMARY_MODEL=gpt-5-nano
+FMP_API_KEY=your_fmp_key
+```
+
+Notes:
+
+1. `OPENAI_API_KEY` is only needed if you want the AI summary.
+2. `FMP_API_KEY` is only a fallback and is not required for the main dashboard.
+
+## 2. Run on Localhost
 
 From `web/`:
 
@@ -49,79 +50,96 @@ Open:
 http://localhost:3000
 ```
 
-Useful commands:
+Useful checks:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-## 4. API Endpoint
+## 3. Main Routes
 
-Dashboard data endpoint:
+Dashboard:
 
 ```text
-GET /api/strategy-mnav?days=365
+/
 ```
 
-`days` supports range `30` to `730`.
+Data API:
 
-## 5. Deploy to Vercel (Dashboard Method)
+```text
+/api/strategy-mnav?days=365
+```
+
+Optional AI summary API:
+
+```text
+/api/strategy-summary
+```
+
+Cache refresh endpoint used by Vercel Cron:
+
+```text
+/api/refresh-cache
+```
+
+## 4. Update Frequency
+
+The project is configured to refresh:
+
+1. every `8 hours`
+2. equivalent to `3 times per day`
+
+Implementation:
+
+1. Next.js revalidation uses `28800` seconds
+2. Vercel Cron Jobs call `/api/refresh-cache`
+3. cron schedule is defined in [vercel.json](/Users/morrisliao/Desktop/git-repo/bitcoin/hw2/web/vercel.json)
+
+## 5. Deploy to Vercel
 
 Recommended method:
 
-1. Push this repository to GitHub.
-2. In Vercel, click `Add New Project` and import the repository.
-3. Set `Root Directory` to `web`.
-4. In `Project Settings -> Environment Variables`, add:
-   - `COINGECKO_API_KEY`
-   - `FMP_API_KEY` (optional fallback)
-   - `SEC_USER_AGENT` (recommended for SEC access)
-5. Deploy.
+1. push repository to GitHub
+2. import repository in Vercel
+3. set `Root Directory` to `web`
+4. add environment variables
+5. deploy
+
+Required Vercel env vars:
+
+1. `COINGECKO_API_KEY`
+2. `SEC_USER_AGENT`
+
+Optional Vercel env vars:
+
+1. `OPENAI_API_KEY`
+2. `OPENAI_SUMMARY_MODEL`
+3. `FMP_API_KEY`
 
 After deployment, verify:
 
-1. `/` page renders charts and summary cards.
-2. `/api/strategy-mnav?days=365` returns JSON.
+1. homepage loads
+2. `/api/strategy-mnav?days=365` returns JSON
+3. if OpenAI is enabled, `/api/strategy-summary` returns summary text
+4. cron jobs are active in Vercel
 
-## 6. Deploy to Vercel (CLI Method)
-
-Install Vercel CLI:
-
-```bash
-npm install -g vercel
-```
-
-From `web/`:
-
-```bash
-vercel
-```
-
-For production:
-
-```bash
-vercel --prod
-```
-
-If this is the first deploy, follow prompts to link/create project and set root directory as `web`.
-
-## 7. Troubleshooting
+## 6. Troubleshooting
 
 If homepage shows "Failed to load Strategy dashboard":
 
-1. Check `web/.env.local` keys are present and correct.
-2. Confirm API key quotas are not exhausted.
-3. Confirm `/api/strategy-mnav?days=365` response.
+1. confirm `COINGECKO_API_KEY` is correct
+2. confirm CoinGecko quota is not exhausted
+3. open `/api/strategy-mnav?days=365` and inspect the returned error
 
-If Vercel deployment succeeds but data is empty:
+If enterprise value or mNAV looks off:
 
-1. Recheck environment variables in Vercel project settings.
-2. Redeploy after updating variables.
+1. check the header label `Market Cap Source`
+2. if Yahoo or SEC was blocked, the app may have used fallback market cap
+3. if SEC debt or cash series is missing, EV may temporarily collapse toward market-cap-only behavior
 
-If FMP returns 402 for `MSTR`:
+If AI summary does not appear:
 
-1. Your plan may block `historical-market-capitalization` for this symbol.
-2. The app will use `Yahoo close x SEC shares` as the primary market-cap path.
-3. If Yahoo or SEC is unavailable at runtime, it may fallback to `stable/profile` current market cap.
-4. Check the `Market Cap Source` label on the page header to confirm active mode.
+1. confirm `OPENAI_API_KEY` is set
+2. confirm the deployment has redeployed after adding the variable
+3. open `/api/strategy-summary`

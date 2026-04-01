@@ -19,11 +19,12 @@ export function DashboardHeader({ generatedAt, marketCapSource }: DashboardHeade
       </h1>
       <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-200 md:text-base">
         This dashboard aligns Strategy BTC holdings, BTC market price, and MSTR
-        market capitalization into one daily series to visualize premium and
-        valuation pressure over time.
+        enterprise value into one daily series to visualize premium and
+        valuation pressure over time. Data is cached and refreshed on an
+        8-hour cycle so the site updates three times per day.
       </p>
       <p className="mt-5 text-xs text-slate-300">Last generated: {generatedText}</p>
-      <p className="mt-1 text-xs text-slate-300">Market Cap Source: {marketCapSource}</p>
+      <p className="mt-1 text-xs text-slate-300">Valuation Source: {marketCapSource}</p>
     </header>
   );
 }

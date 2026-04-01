@@ -1,15 +1,20 @@
 import { Dashboard } from "@/components/dashboard";
+import { generateStrategySummary, hasOpenAiSummaryEnabled } from "@/lib/ai-summary";
 import { getStrategyDashboardData } from "@/lib/transform";
 
-export const revalidate = 1800;
+export const revalidate = 28800;
 
 async function loadDashboardData() {
   try {
     const data = await getStrategyDashboardData(365);
-    return { data, error: null as string | null };
+    const summary = hasOpenAiSummaryEnabled()
+      ? await generateStrategySummary(data).catch(() => null)
+      : null;
+    return { data, summary, error: null as string | null };
   } catch (error) {
     return {
       data: null,
+      summary: null,
       error:
         error instanceof Error
           ? error.message
@@ -28,12 +33,12 @@ export default async function Home() {
           <h1 className="text-xl font-semibold">Failed to load Strategy dashboard</h1>
           <p className="mt-3 text-sm leading-7 text-red-100/90">{result.error}</p>
           <p className="mt-4 text-xs text-red-100/80">
-            Ensure `COINGECKO_API_KEY` and `FMP_API_KEY` are set in `web/.env.local`.
+            Ensure `COINGECKO_API_KEY` is set in `web/.env.local`.
           </p>
         </section>
       </main>
     );
   }
 
-  return <Dashboard data={result.data} />;
+  return <Dashboard data={result.data} summary={result.summary} />;
 }
