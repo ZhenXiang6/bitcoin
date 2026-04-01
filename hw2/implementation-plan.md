@@ -91,6 +91,7 @@ The site will display:
 
 1. daily data
 2. default range: `365 days`
+3. selectable ranges: `1W`, `1M`, `6M`, `1Y`
 
 The site will update:
 
@@ -106,6 +107,12 @@ Implementation:
    - `08:00`
    - `16:00`
 
+Range limitation note:
+
+1. CoinGecko `holding_chart` data is available from August 2020 onwards.
+2. Under the current `Demo` plan, historical access is capped at `1 year`.
+3. Therefore the current project supports up to `1Y` range unless the CoinGecko plan is upgraded.
+
 ## 6. Website Scope
 
 The homepage should contain:
@@ -114,7 +121,6 @@ The homepage should contain:
 2. indicator definition section
 3. summary cards
 4. `mNAV` chart
-5. `BTC NAV vs Market Cap` chart
 5. `BTC NAV vs Enterprise Value` chart
 6. optional AI summary
 7. methodology / notes section

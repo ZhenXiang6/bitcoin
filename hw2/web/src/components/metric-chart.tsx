@@ -16,6 +16,8 @@ import type { StrategySeriesRow } from "@/lib/types";
 type MetricChartProps = {
   mode: "mnav" | "valuation";
   series: StrategySeriesRow[];
+  rangeSelector?: React.ReactNode;
+  statusNote?: React.ReactNode;
 };
 
 function formatDateLabel(value: string) {
@@ -23,20 +25,24 @@ function formatDateLabel(value: string) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function MetricChart({ mode, series }: MetricChartProps) {
+export function MetricChart({ mode, series, rangeSelector, statusNote }: MetricChartProps) {
   const isMnav = mode === "mnav";
 
   return (
     <article className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md md:p-6">
-      <div className="mb-5">
-        <h3 className="text-lg font-semibold text-white">
-          {isMnav ? "mNAV Daily Time Series" : "BTC NAV vs Enterprise Value"}
-        </h3>
-        <p className="mt-1 text-sm text-slate-300">
-          {isMnav
-            ? "mNAV is the core DAT.co indicator on this site."
-            : "This comparison shows how BTC treasury value and enterprise value combine into mNAV."}
-        </p>
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            {isMnav ? "mNAV Daily Time Series" : "BTC NAV vs Enterprise Value"}
+          </h3>
+          <p className="mt-1 text-sm text-slate-300">
+            {isMnav
+              ? "mNAV is the core DAT.co indicator on this site."
+              : "This comparison shows how BTC treasury value and enterprise value combine into mNAV."}
+          </p>
+          {statusNote ? <div className="mt-2 text-xs text-slate-300">{statusNote}</div> : null}
+        </div>
+        {isMnav && rangeSelector ? <div className="shrink-0">{rangeSelector}</div> : null}
       </div>
       <div className="h-[320px] w-full">
         <ResponsiveContainer>

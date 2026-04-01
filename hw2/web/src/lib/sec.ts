@@ -145,10 +145,11 @@ export async function getStrategyCashSeries(): Promise<FinancialMetricPoint[]> {
 
 export async function getStrategyDebtSeries(): Promise<FinancialMetricPoint[]> {
   const totalDebt = await getFirstAvailableConceptSeries([
+    { taxonomy: "us-gaap", concept: "LongTermDebt" },
     { taxonomy: "us-gaap", concept: "Debt" },
+    { taxonomy: "us-gaap", concept: "ConvertibleLongTermNotesPayable" },
     { taxonomy: "us-gaap", concept: "LongTermDebtAndFinanceLeaseObligations" },
     { taxonomy: "us-gaap", concept: "LongTermDebtAndCapitalLeaseObligations" },
-    { taxonomy: "us-gaap", concept: "LongTermDebt" },
   ]);
 
   if (totalDebt.length > 0) {
@@ -157,6 +158,7 @@ export async function getStrategyDebtSeries(): Promise<FinancialMetricPoint[]> {
 
   const [currentDebt, nonCurrentDebt] = await Promise.all([
     getFirstAvailableConceptSeries([
+      { taxonomy: "us-gaap", concept: "LongTermDebtCurrent" },
       { taxonomy: "us-gaap", concept: "ShortTermBorrowings" },
       { taxonomy: "us-gaap", concept: "LongTermDebtCurrentMaturities" },
       {

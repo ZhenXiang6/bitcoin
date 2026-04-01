@@ -5,7 +5,20 @@ import { getStrategyDashboardData } from "@/lib/transform";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const ALLOWED_DAYS = [7, 30, 180, 365] as const;
+
+function parseDays(value: string | null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 365;
+  }
+  const normalized = Math.floor(parsed);
+  return ALLOWED_DAYS.includes(normalized as (typeof ALLOWED_DAYS)[number])
+    ? normalized
+    : 365;
+}
+
+export async function GET(request: Request) {
   if (!hasOpenAiSummaryEnabled()) {
     return NextResponse.json(
       { enabled: false, summary: null },
@@ -18,7 +31,9 @@ export async function GET() {
   }
 
   try {
-    const data = await getStrategyDashboardData(365);
+    const url = new URL(request.url);
+    const days = parseDays(url.searchParams.get("days"));
+    const data = await getStrategyDashboardData(days);
     const summary = await generateStrategySummary(data);
     return NextResponse.json(
       { enabled: true, summary },

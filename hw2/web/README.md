@@ -71,6 +71,13 @@ Data API:
 /api/strategy-mnav?days=365
 ```
 
+Supported `days` values under the current CoinGecko demo plan:
+
+1. `7`
+2. `30`
+3. `180`
+4. `365`
+
 Optional AI summary API:
 
 ```text
@@ -95,6 +102,12 @@ Implementation:
 1. Next.js revalidation uses `28800` seconds
 2. Vercel Cron Jobs call `/api/refresh-cache`
 3. cron schedule is defined in [vercel.json](/Users/morrisliao/Desktop/git-repo/bitcoin/hw2/web/vercel.json)
+
+Historical range note:
+
+1. CoinGecko treasury holding history is available from August 2020 onwards.
+2. With the current `Demo` plan, `holding_chart` access is capped at `1 year`.
+3. That is why the UI range selector currently stops at `1Y`.
 
 ## 5. Deploy to Vercel
 

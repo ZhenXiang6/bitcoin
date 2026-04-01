@@ -4,12 +4,17 @@ import { getStrategyDashboardData } from "@/lib/transform";
 
 export const dynamic = "force-dynamic";
 
+const ALLOWED_DAYS = [7, 30, 180, 365] as const;
+
 function parseDays(value: string | null) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     return 365;
   }
-  return Math.min(730, Math.max(30, Math.floor(parsed)));
+  const normalized = Math.floor(parsed);
+  return ALLOWED_DAYS.includes(normalized as (typeof ALLOWED_DAYS)[number])
+    ? normalized
+    : 365;
 }
 
 export async function GET(request: Request) {
