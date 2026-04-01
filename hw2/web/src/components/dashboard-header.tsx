@@ -4,10 +4,15 @@ type DashboardHeaderProps = {
 };
 
 export function DashboardHeader({ generatedAt, marketCapSource }: DashboardHeaderProps) {
-  const generatedText = new Date(generatedAt).toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const generatedText = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  }).format(new Date(generatedAt));
 
   return (
     <header className="rounded-3xl border border-white/20 bg-white/10 p-6 backdrop-blur-md md:p-8">
@@ -23,7 +28,7 @@ export function DashboardHeader({ generatedAt, marketCapSource }: DashboardHeade
         valuation pressure over time. Data is cached and refreshed on an
         8-hour cycle so the site updates three times per day.
       </p>
-      <p className="mt-5 text-xs text-slate-300">Last generated: {generatedText}</p>
+      <p className="mt-5 text-xs text-slate-300">Last generated (UTC): {generatedText}</p>
       <p className="mt-1 text-xs text-slate-300">Valuation Source: {marketCapSource}</p>
     </header>
   );
