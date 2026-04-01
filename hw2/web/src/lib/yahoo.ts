@@ -1,3 +1,5 @@
+import YahooFinance from "yahoo-finance2";
+
 type YahooChartResponse = {
   chart?: {
     result?: Array<{
@@ -27,6 +29,7 @@ const YAHOO_HOSTS = [
   "https://query1.finance.yahoo.com",
   "https://query2.finance.yahoo.com",
 ];
+const yahooFinance = new YahooFinance();
 
 function toDateStringFromSeconds(seconds: number) {
   return new Date(seconds * 1000).toISOString().slice(0, 10);
@@ -82,11 +85,69 @@ function parseYahooCloseSeries(payload: YahooChartResponse): YahooClosePoint[] {
   return rows;
 }
 
+type YahooFinance2Quote = {
+  date?: Date | string;
+  close?: number | null;
+};
+
+function normalizeDateInput(input: Date | string) {
+  const date = input instanceof Date ? input : new Date(input);
+  return date.toISOString().slice(0, 10);
+}
+
+async function getYahooSeriesViaLibrary(symbol: string, days: number) {
+  const period1 = new Date(Date.now() - (days + 40) * 24 * 60 * 60 * 1000);
+  const period2 = new Date();
+
+  const chart = (await yahooFinance.chart(symbol, {
+    period1,
+    period2,
+    interval: "1d",
+  })) as { quotes?: YahooFinance2Quote[] };
+
+  const quotes = Array.isArray(chart.quotes) ? chart.quotes : [];
+  const seen = new Set<string>();
+  const rows: YahooClosePoint[] = [];
+
+  for (const quote of quotes) {
+    if (
+      (quote.date instanceof Date || typeof quote.date === "string") &&
+      typeof quote.close === "number" &&
+      Number.isFinite(quote.close) &&
+      quote.close > 0
+    ) {
+      const normalizedDate = normalizeDateInput(quote.date);
+      if (seen.has(normalizedDate)) {
+        continue;
+      }
+      seen.add(normalizedDate);
+      rows.push({
+        date: normalizedDate,
+        close: quote.close,
+      });
+    }
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return rows;
+}
+
 export async function getYahooHistoricalCloseSeries(
   symbol: string,
   days: number,
 ): Promise<YahooClosePoint[]> {
   let lastError = "Unknown Yahoo request error";
+
+  try {
+    const libraryRows = await getYahooSeriesViaLibrary(symbol, days);
+    if (libraryRows.length > 0) {
+      return libraryRows;
+    }
+    lastError = "yahoo-finance2 returned empty quote series.";
+  } catch (error) {
+    lastError =
+      error instanceof Error ? `yahoo-finance2 error: ${error.message}` : "yahoo-finance2 error";
+  }
 
   for (const host of YAHOO_HOSTS) {
     const url = buildYahooChartUrl(host, symbol, days);

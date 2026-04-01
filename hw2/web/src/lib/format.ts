@@ -15,6 +15,10 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const preciseNumberFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 6,
+});
+
 const percentFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
   minimumFractionDigits: 2,
@@ -33,6 +37,10 @@ export function formatCurrency(value: number) {
 
 export function formatNumber(value: number) {
   return numberFormatter.format(value);
+}
+
+export function formatPreciseNumber(value: number) {
+  return preciseNumberFormatter.format(value);
 }
 
 export function formatPercent(value: number) {

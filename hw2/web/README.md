@@ -3,7 +3,7 @@
 This project is a DAT-focused web dashboard for `Strategy (MSTR)` using:
 
 1. `CoinGecko API` for BTC treasury holdings and BTC market data
-2. `Yahoo Finance` (unofficial chart endpoint) for MSTR historical close
+2. `yahoo-finance2` (with Yahoo chart endpoint fallback) for MSTR historical close
 3. `SEC Company Facts` for shares outstanding snapshots
 4. `FMP API` as optional fallback when Yahoo/SEC data is unavailable
 

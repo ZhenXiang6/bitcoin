@@ -27,6 +27,9 @@ export function Dashboard({ data }: DashboardProps) {
         <IndicatorExplainer />
         <MetricChart mode="mnav" series={data.series} />
         <MetricChart mode="valuation" series={data.series} />
+        <MetricChart mode="costBasis" series={data.series} />
+        <MetricChart mode="perShare" series={data.series} />
+        <MetricChart mode="treasury" series={data.series} />
         <TransactionTable transactions={data.transactions} />
 
         <section className="rounded-2xl border border-white/20 bg-black/20 p-4 text-xs leading-6 text-slate-300">

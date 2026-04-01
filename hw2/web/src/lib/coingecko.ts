@@ -4,8 +4,16 @@ type CoinGeckoTier = "demo" | "pro";
 type StrategyProfileResponse = {
   symbol?: string;
   m_nav?: number;
-  holdings?: number;
   total_treasury_value_usd?: number;
+  holdings?: Array<{
+    amount?: number;
+    average_entry_value_usd?: number;
+    amount_per_share?: number;
+    percentage_of_total_supply?: number;
+    current_value_usd?: number;
+    total_entry_value_usd?: number;
+    unrealized_pnl?: number;
+  }>;
 };
 
 type HoldingChartResponse = {

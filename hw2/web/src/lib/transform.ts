@@ -21,6 +21,7 @@ import { getYahooHistoricalCloseSeries, type YahooClosePoint } from "@/lib/yahoo
 
 type NumericPoint = [number, number];
 type MarketCapRow = { date: string; marketCap: number };
+type AverageEntryRow = { date: string; avgEntryPriceUsd: number };
 
 type NormalizedTransactionRow = {
   date: string;
@@ -113,6 +114,54 @@ function sortByDateAsc<T extends { date: string }>(rows: T[]) {
   return [...rows].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function classifySignedQuantity(transactionType: string, quantity: number) {
+  const normalized = transactionType.toLowerCase();
+  if (normalized.includes("sell") || normalized.includes("dispose")) {
+    return -Math.abs(quantity);
+  }
+  return Math.abs(quantity);
+}
+
+function buildAverageEntryRows(
+  transactionRows: NormalizedTransactionRow[],
+  fallbackAvgEntryPriceUsd: number | null,
+) {
+  const sortedRows = sortByDateAsc(transactionRows);
+  const avgEntryByDate = new Map<string, number>();
+  let cumulativeQuantity = 0;
+  let cumulativeCostUsd = 0;
+
+  for (const row of sortedRows) {
+    const signedQuantity = classifySignedQuantity(row.transactionType, row.quantity);
+    if (signedQuantity > 0) {
+      cumulativeQuantity += signedQuantity;
+      cumulativeCostUsd += Math.abs(row.totalValueUsd);
+    } else {
+      const sellQuantity = Math.min(cumulativeQuantity, Math.abs(signedQuantity));
+      const averageCost = cumulativeQuantity > 0 ? cumulativeCostUsd / cumulativeQuantity : 0;
+      cumulativeQuantity -= sellQuantity;
+      cumulativeCostUsd -= sellQuantity * averageCost;
+      if (cumulativeQuantity <= 0) {
+        cumulativeQuantity = 0;
+        cumulativeCostUsd = 0;
+      }
+    }
+
+    if (cumulativeQuantity > 0 && cumulativeCostUsd > 0) {
+      avgEntryByDate.set(row.date, cumulativeCostUsd / cumulativeQuantity);
+    }
+  }
+
+  if (avgEntryByDate.size === 0 && fallbackAvgEntryPriceUsd && fallbackAvgEntryPriceUsd > 0) {
+    return [] as AverageEntryRow[];
+  }
+
+  return Array.from(avgEntryByDate.entries()).map(([date, avgEntryPriceUsd]) => ({
+    date,
+    avgEntryPriceUsd,
+  }));
+}
+
 function buildEstimatedMarketCapRows(
   closeRows: YahooClosePoint[],
   sharesRows: SharesOutstandingPoint[],
@@ -172,18 +221,47 @@ function buildEstimatedMarketCapRows(
   return output;
 }
 
+function addRollingMetrics(series: StrategySeriesRow[]) {
+  const withMetrics = [...series];
+  for (let index = 0; index < withMetrics.length; index += 1) {
+    const current = withMetrics[index];
+    const prior30 = index >= 30 ? withMetrics[index - 30] : null;
+
+    current.netBtcAdded30d =
+      prior30 !== null ? current.btcHoldings - prior30.btcHoldings : null;
+    current.accumulation30dPct =
+      prior30 !== null && prior30.btcHoldings > 0
+        ? ((current.btcHoldings - prior30.btcHoldings) / prior30.btcHoldings) * 100
+        : null;
+    current.estimatedBtcYield30dPct =
+      prior30 !== null &&
+      prior30.estimatedBps !== null &&
+      prior30.estimatedBps > 0 &&
+      current.estimatedBps !== null
+        ? (current.estimatedBps / prior30.estimatedBps - 1) * 100
+        : null;
+  }
+  return withMetrics;
+}
+
 function buildMergedSeries(
   holdingsMap: Map<string, number>,
   holdingValueMap: Map<string, number>,
   btcPriceMap: Map<string, number>,
   marketCapMap: Map<string, number>,
+  sharesOutstandingMap: Map<string, number>,
+  avgEntryPriceMap: Map<string, number>,
   fallbackMarketCap: number | null,
+  fallbackShares: number | null,
+  fallbackAvgEntryPriceUsd: number | null,
 ): StrategySeriesRow[] {
   const allDates = new Set<string>([
     ...holdingsMap.keys(),
     ...holdingValueMap.keys(),
     ...btcPriceMap.keys(),
     ...marketCapMap.keys(),
+    ...sharesOutstandingMap.keys(),
+    ...avgEntryPriceMap.keys(),
   ]);
   const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
 
@@ -191,6 +269,8 @@ function buildMergedSeries(
   let lastHoldingValue: number | null = null;
   let lastBtcPrice: number | null = null;
   let lastMarketCap: number | null = null;
+  let lastSharesOutstanding: number | null = fallbackShares;
+  let lastAvgEntryPriceUsd: number | null = fallbackAvgEntryPriceUsd;
 
   const rows: StrategySeriesRow[] = [];
 
@@ -208,6 +288,12 @@ function buildMergedSeries(
       lastMarketCap = marketCapMap.get(date) ?? null;
     } else if (lastMarketCap === null && fallbackMarketCap && fallbackMarketCap > 0) {
       lastMarketCap = fallbackMarketCap;
+    }
+    if (sharesOutstandingMap.has(date)) {
+      lastSharesOutstanding = sharesOutstandingMap.get(date) ?? lastSharesOutstanding;
+    }
+    if (avgEntryPriceMap.has(date)) {
+      lastAvgEntryPriceUsd = avgEntryPriceMap.get(date) ?? lastAvgEntryPriceUsd;
     }
 
     if (
@@ -230,6 +316,18 @@ function buildMergedSeries(
       lastHoldingValue !== null && lastHoldingValue > 0 ? lastHoldingValue : btcNavUsd;
     const mNav = lastMarketCap / btcNavUsd;
     const premiumToNavPct = (mNav - 1) * 100;
+    const sharesOutstanding =
+      lastSharesOutstanding !== null && lastSharesOutstanding > 0 ? lastSharesOutstanding : null;
+    const btcNavPerShareUsd =
+      sharesOutstanding !== null ? btcNavUsd / sharesOutstanding : null;
+    const estimatedBps =
+      sharesOutstanding !== null ? lastHoldings / sharesOutstanding : null;
+    const avgEntryPriceUsd =
+      lastAvgEntryPriceUsd !== null && lastAvgEntryPriceUsd > 0 ? lastAvgEntryPriceUsd : null;
+    const unrealizedPnlUsd =
+      avgEntryPriceUsd !== null ? (lastBtcPrice - avgEntryPriceUsd) * lastHoldings : null;
+    const unrealizedPnlPct =
+      avgEntryPriceUsd !== null ? ((lastBtcPrice - avgEntryPriceUsd) / avgEntryPriceUsd) * 100 : null;
 
     rows.push({
       date,
@@ -238,12 +336,21 @@ function buildMergedSeries(
       holdingValueUsd,
       btcNavUsd,
       marketCapUsd: lastMarketCap,
+      sharesOutstanding,
+      avgEntryPriceUsd,
+      unrealizedPnlUsd,
+      unrealizedPnlPct,
+      accumulation30dPct: null,
+      netBtcAdded30d: null,
+      btcNavPerShareUsd,
+      estimatedBps,
+      estimatedBtcYield30dPct: null,
       mNav,
       premiumToNavPct,
     });
   }
 
-  return rows;
+  return addRollingMetrics(rows);
 }
 
 function sliceSeriesByDays(series: StrategySeriesRow[], days: number): StrategySeriesRow[] {
@@ -291,7 +398,7 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     coingeckoProfile,
     holdingChart,
     btcChart,
-    transactionRows,
+    rawTransactionRows,
     yahooCloseRows,
     secSharesRows,
     fmpProfile,
@@ -307,13 +414,23 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     getMstrSharesFloat().catch(() => null),
   ]);
 
+  const transactionRows = rawTransactionRows
+    .map(normalizeTransactionRow)
+    .filter((row): row is NormalizedTransactionRow => row !== null);
+  const profileHolding = Array.isArray(coingeckoProfile.holdings)
+    ? coingeckoProfile.holdings[0]
+    : null;
+  const fallbackAvgEntryPriceUsd = toNumber(profileHolding?.average_entry_value_usd);
+  const fallbackShares = toNumber(fmpShares?.outstandingShares);
+  const avgEntryRows = buildAverageEntryRows(transactionRows, fallbackAvgEntryPriceUsd);
+
   const notes: string[] = [
     "mNAV formula in this project: marketCap / (btcHoldings x btcPrice).",
-    "Market cap on non-trading dates is forward-filled to align daily BTC data.",
-    "All values are USD-based daily approximations for educational analysis.",
+    "BTC NAV per Share is estimated with forward-filled shares outstanding.",
+    "Estimated BPS and Estimated BTC Yield use outstanding shares rather than fully diluted share assumptions.",
+    "All values are USD-based educational estimates and should be interpreted with methodology notes.",
   ];
 
-  const fallbackShares = toNumber(fmpShares?.outstandingShares);
   const estimatedMarketCapRows = buildEstimatedMarketCapRows(
     yahooCloseRows,
     secSharesRows,
@@ -378,6 +495,11 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   if (secSharesRows.length === 0) {
     notes.push("SEC shares-outstanding series unavailable in this runtime.");
   }
+  if (avgEntryRows.length === 0 && fallbackAvgEntryPriceUsd) {
+    notes.push(
+      "Daily average-entry reconstruction was incomplete. Used current average entry price as fallback for unrealized PnL estimates.",
+    );
+  }
 
   const holdingsMap = pointsToMap(holdingChart.holdings);
   const holdingValueMap = pointsToMap(holdingChart.holding_value_in_usd);
@@ -385,13 +507,23 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   const marketCapMap = new Map<string, number>(
     marketCapRows.map((row) => [row.date, row.marketCap]),
   );
+  const sharesOutstandingMap = new Map<string, number>(
+    secSharesRows.map((row) => [row.date, row.sharesOutstanding]),
+  );
+  const avgEntryPriceMap = new Map<string, number>(
+    avgEntryRows.map((row) => [row.date, row.avgEntryPriceUsd]),
+  );
 
   const mergedSeries = buildMergedSeries(
     holdingsMap,
     holdingValueMap,
     btcPriceMap,
     marketCapMap,
+    sharesOutstandingMap,
+    avgEntryPriceMap,
     fallbackMarketCap,
+    fallbackShares,
+    fallbackAvgEntryPriceUsd,
   );
   const series = sliceSeriesByDays(mergedSeries, requestedDays);
   const lastRow = series[series.length - 1];
@@ -413,12 +545,21 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
       btcPriceUsd: lastRow.btcPriceUsd,
       btcNavUsd: lastRow.btcNavUsd,
       marketCapUsd: lastRow.marketCapUsd,
+      sharesOutstanding: lastRow.sharesOutstanding,
+      avgEntryPriceUsd: lastRow.avgEntryPriceUsd,
+      unrealizedPnlUsd: lastRow.unrealizedPnlUsd,
+      unrealizedPnlPct: lastRow.unrealizedPnlPct,
+      accumulation30dPct: lastRow.accumulation30dPct,
+      netBtcAdded30d: lastRow.netBtcAdded30d,
+      btcNavPerShareUsd: lastRow.btcNavPerShareUsd,
+      estimatedBps: lastRow.estimatedBps,
+      estimatedBtcYield30dPct: lastRow.estimatedBtcYield30dPct,
       mNav: lastRow.mNav,
       premiumToNavPct: lastRow.premiumToNavPct,
       profileMNav: toNumber(coingeckoProfile.m_nav),
     },
     series,
-    transactions: formatTransactions(transactionRows),
+    transactions: formatTransactions(rawTransactionRows),
     notes,
   };
 }

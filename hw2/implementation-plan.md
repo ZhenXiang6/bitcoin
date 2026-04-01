@@ -2,7 +2,7 @@
 
 ## 1. Project Objective
 
-Build a web-based dashboard focused on `Strategy` as a Digital Asset Treasury company and use a daily time-series indicator to help users observe the relationship between Strategy's Bitcoin treasury exposure and market valuation.
+Build a web-based dashboard focused on `Strategy` as a Digital Asset Treasury company and use a daily time-series indicator set to help users observe the relationship between Strategy's Bitcoin treasury exposure, market valuation, treasury growth, and per-share BTC efficiency.
 
 This project will use one required API and one stock-market data path:
 
@@ -23,6 +23,16 @@ PremiumToNAV_t = mNAV_t - 1
 
 This choice fits the homework examples directly and is also easy to explain in the final report.
 
+Secondary indicators will be added to avoid over-relying on one valuation ratio:
+
+```text
+UnrealizedPnL%_t = (BTC_Price_t - AvgEntryPrice_t) / AvgEntryPrice_t x 100
+Accumulation30D_t = (Holdings_t - Holdings_t-30) / Holdings_t-30 x 100
+BTC_NAV_Per_Share_t = BTC_NAV_t / SharesOutstanding_t
+EstimatedBPS_t = BTC_Holdings_t / SharesOutstanding_t
+EstimatedBTCYield30D_t = (EstimatedBPS_t / EstimatedBPS_t-30 - 1) x 100
+```
+
 ## 2. Why Choose Strategy
 
 `Strategy` is the most representative DAT company because:
@@ -32,7 +42,7 @@ This choice fits the homework examples directly and is also easy to explain in t
 3. CoinGecko provides dedicated treasury endpoints for Strategy.
 4. The report section on "relationship with Bitcoin" is much easier to write than for mixed-business firms.
 
-## 3. Selected Indicator
+## 3. Selected Indicators
 
 The main indicator will be `mNAV`.
 
@@ -63,6 +73,19 @@ mNAV = market capitalization / BTC NAV
 ```
 
 This is the operational definition used in this project, even though other platforms may use slightly different versions.
+
+Additional implemented indicators:
+
+1. `Unrealized PnL %`
+   - Measures how profitable Strategy's BTC treasury is relative to reconstructed average entry price.
+2. `30D Accumulation Pace`
+   - Measures how fast Strategy has added BTC over the last 30 calendar days.
+3. `BTC NAV Per Share`
+   - Estimates the BTC-backed asset value attributable to each MSTR share.
+4. `Estimated BPS`
+   - Estimates `bitcoin per share` using reported outstanding shares.
+5. `Estimated BTC Yield 30D`
+   - Measures 30-day growth in Estimated BPS.
 
 ## 4. Data Sources
 
@@ -238,11 +261,17 @@ mNav = marketCapUsd / btcNavUsd
 premiumToNavPct = (mNav - 1) x 100
 ```
 
-Additional helpful metrics:
+Additional implemented metrics:
 
 ```text
 holdingValueUsd = btcHoldings x btcPriceUsd
-marketCapToHoldingValueGap = marketCapUsd - btcNavUsd
+unrealizedPnlUsd = (btcPriceUsd - avgEntryPriceUsd) x btcHoldings
+unrealizedPnlPct = (btcPriceUsd - avgEntryPriceUsd) / avgEntryPriceUsd x 100
+netBtcAdded30d = btcHoldings_t - btcHoldings_t-30
+accumulation30dPct = (btcHoldings_t - btcHoldings_t-30) / btcHoldings_t-30 x 100
+btcNavPerShareUsd = btcNavUsd / sharesOutstanding
+estimatedBps = btcHoldings / sharesOutstanding
+estimatedBtcYield30dPct = (estimatedBps_t / estimatedBps_t-30 - 1) x 100
 ```
 
 Approximation note:
@@ -346,7 +375,10 @@ Responsibilities:
 2. Sort ascending by date
 3. Join holdings, BTC price, and market cap
 4. Forward-fill market cap on non-trading days
-5. Compute `btcNavUsd`, `mNav`, `premiumToNavPct`
+5. Reconstruct average BTC entry price from transaction history
+6. Estimate daily market cap from Yahoo close and forward-filled share count
+7. Compute `btcNavUsd`, `mNav`, `premiumToNavPct`
+8. Compute `unrealizedPnlPct`, `accumulation30dPct`, `btcNavPerShareUsd`, `estimatedBps`, and `estimatedBtcYield30dPct`
 6. Return frontend-ready rows
 
 Output row shape:
@@ -358,6 +390,12 @@ type StrategyMnavRow = {
   btcPriceUsd: number;
   btcNavUsd: number;
   marketCapUsd: number;
+  avgEntryPriceUsd: number | null;
+  unrealizedPnlPct: number | null;
+  accumulation30dPct: number | null;
+  btcNavPerShareUsd: number | null;
+  estimatedBps: number | null;
+  estimatedBtcYield30dPct: number | null;
   mNav: number;
   premiumToNavPct: number;
 };
@@ -397,8 +435,11 @@ The homepage should contain:
 3. Key summary cards
 4. Main mNAV chart
 5. BTC NAV vs Market Cap comparison chart
-6. Transaction event table
-7. Insights or interpretation section
+6. BTC spot vs average entry chart
+7. Per-share exposure chart
+8. Treasury growth / BTC Yield chart
+9. Transaction event table
+10. Insights or interpretation section
 
 ### 9.2 Summary cards
 
@@ -409,6 +450,12 @@ Show:
 3. Current market cap
 4. Current mNAV
 5. Current premium to NAV
+6. Current unrealized PnL %
+7. 30D net BTC added
+8. 30D accumulation pace
+9. BTC NAV per share
+10. Estimated BPS
+11. Estimated BTC Yield 30D
 
 ### 9.3 Main chart
 
@@ -433,7 +480,30 @@ Purpose:
 
 1. Show whether market valuation expands faster than treasury value.
 
-### 9.5 Event markers
+### 9.5 Additional charts
+
+Cost-basis chart:
+
+1. `BTC Spot`
+2. `Avg Entry Price`
+3. `Unrealized PnL %`
+
+Per-share chart:
+
+1. `BTC NAV Per Share`
+2. `Estimated BPS`
+
+Treasury-efficiency chart:
+
+1. `30D Accumulation Pace`
+2. `Estimated BTC Yield 30D`
+
+Purpose:
+
+1. Separate valuation from treasury quality and treasury growth.
+2. Avoid presenting only `mNAV` and `Premium`, which are linear transforms of the same concept.
+
+### 9.6 Event markers
 
 Mark major Strategy BTC purchase dates on charts.
 
@@ -445,7 +515,7 @@ Possible behavior:
    - transaction value
    - source link
 
-### 9.6 Transaction table
+### 9.7 Transaction table
 
 Columns:
 
@@ -499,6 +569,8 @@ Check:
 1. `btcNavUsd` should approximately match CoinGecko treasury value scale
 2. `mNAV` should be in a reasonable range
 3. Market cap should generally exceed BTC NAV for Strategy over many periods, though this should not be hard-coded
+4. `Estimated BPS` should move only when holdings or share count changes
+5. `Estimated BTC Yield 30D` should not be treated as identical to price return
 
 ### 11.3 UI validation
 
@@ -532,7 +604,10 @@ Deliverables:
 1. Summary cards
 2. mNAV chart
 3. NAV vs market cap chart
-4. Transaction table
+4. Cost-basis chart
+5. Per-share chart
+6. Treasury growth chart
+7. Transaction table
 
 ### Milestone 4: Report content
 
@@ -561,6 +636,7 @@ Write:
 1. The selected indicator is `Strategy mNAV`
 2. It measures how the stock market values Strategy relative to the marked value of its BTC treasury
 3. This was chosen because it directly reflects market perception of a Bitcoin treasury company
+4. Supporting indicators include unrealized treasury PnL, accumulation pace, BTC NAV per share, and Estimated BPS / BTC Yield
 
 ### 13.2 Why This Indicator Matters
 
@@ -576,14 +652,18 @@ Write:
 
 1. BTC price increases raise Strategy's BTC NAV directly
 2. Strategy may still outperform BTC if equity investors assign a premium
-3. Therefore mNAV captures the gap between asset value and equity market narrative
+3. Accumulation pace explains when treasury size itself is changing
+4. Estimated BPS and BTC NAV per share translate the treasury into a shareholder-level lens
+5. Therefore mNAV captures the gap between asset value and equity market narrative, while the other indicators explain treasury behavior and per-share efficiency
 
 ### 13.4 Data Sources
 
 Write:
 
 1. CoinGecko for treasury holdings and BTC market data
-2. FMP for MSTR historical market capitalization
+2. Yahoo Finance for MSTR daily close
+3. SEC for shares outstanding snapshots
+4. FMP only as fallback for blocked or missing market-cap/share data
 
 ### 13.5 Website Features
 
@@ -591,7 +671,10 @@ Write:
 
 1. Daily mNAV chart
 2. NAV vs Market Cap comparison
-3. Strategy BTC purchase timeline
+3. BTC spot vs average entry chart
+4. BTC NAV per share / Estimated BPS chart
+5. Treasury growth / Estimated BTC Yield chart
+6. Strategy BTC purchase timeline
 
 ### 13.6 Deployment
 
@@ -628,20 +711,28 @@ Solution:
 1. State the formula explicitly everywhere
 2. Use the same formula in both website and report
 
+### Risk 5: Estimated BPS differs from Strategy's fully diluted KPI
+
+Solution:
+
+1. Label the metric `Estimated BPS`
+2. State that the calculation uses reported outstanding shares rather than Strategy's assumed diluted share count
+
 ## 15. Execution Order
 
 Implement in this order:
 
 1. Set up environment variables
 2. Build CoinGecko client
-3. Build FMP client
-4. Build transform function for daily merged series
-5. Verify calculated mNAV values manually
-6. Build API route
-7. Build dashboard UI
-8. Add transaction table and explanation section
-9. Deploy to Vercel
-10. Write report using the finalized charts and findings
+3. Build Yahoo and SEC clients
+4. Keep FMP as a fallback only
+5. Build transform function for daily merged series
+6. Verify calculated mNAV, BTC NAV per share, and Estimated BPS values manually
+7. Build API route
+8. Build dashboard UI
+9. Add transaction table and explanation section
+10. Deploy to Vercel
+11. Write report using the finalized charts and findings
 
 ## 16. Minimum Viable Version
 
@@ -653,6 +744,7 @@ If time is limited, the minimum acceptable version should include:
 4. BTC NAV vs Market Cap chart
 5. Short explanation text
 6. Public deployment URL
+7. At least one supporting indicator among Unrealized PnL %, 30D Accumulation Pace, or BTC NAV per Share
 
 This version is enough to satisfy the core homework requirements if the data is correct and the report is clear.
 
@@ -665,6 +757,7 @@ Optional extensions:
 3. Download CSV button
 4. AI-generated trend summary
 5. Compare Strategy mNAV with BTC price return
+6. Add richer BPS / BTC Yield methodology notes
 
 ## 18. Final Recommendation
 
@@ -672,7 +765,7 @@ Build the first version around:
 
 1. `Strategy`
 2. `365-day daily mNAV`
-3. `CoinGecko + FMP`
+3. `CoinGecko + Yahoo + SEC`
 4. `Next.js + Vercel`
 
 This is the best balance between:
@@ -692,6 +785,7 @@ Required environment variables on Vercel:
 
 1. `COINGECKO_API_KEY`
 2. `FMP_API_KEY`
+3. `SEC_USER_AGENT` recommended for SEC requests
 
 Deployment steps:
 
@@ -711,5 +805,6 @@ Post-deploy checks:
 Failure checklist:
 
 1. If API route returns 500, check Vercel environment variables
-2. If charts are empty, verify CoinGecko and FMP quotas
+2. If charts are empty, verify CoinGecko quota, Yahoo rate limit, and SEC accessibility
 3. If weekend market cap is missing, verify forward-fill logic
+4. If per-share metrics are flat unexpectedly, verify shares-outstanding series and fallback source

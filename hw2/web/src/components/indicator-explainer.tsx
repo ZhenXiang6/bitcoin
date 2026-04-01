@@ -13,6 +13,26 @@ export function IndicatorExplainer() {
         marked BTC treasury value. When it is below 1, Strategy trades at a
         discount to BTC NAV.
       </p>
+      <div className="mt-4 grid gap-3 text-slate-300 md:grid-cols-2">
+        <p>
+          <span className="font-semibold text-white">Unrealized PnL %</span>{" "}
+          tracks whether Strategy&apos;s BTC cost basis is in profit relative to
+          current BTC spot.
+        </p>
+        <p>
+          <span className="font-semibold text-white">30D Accumulation Pace</span>{" "}
+          measures how fast holdings expanded over the last 30 calendar days.
+        </p>
+        <p>
+          <span className="font-semibold text-white">BTC NAV Per Share</span>{" "}
+          estimates how much BTC-backed asset value sits behind each MSTR share.
+        </p>
+        <p>
+          <span className="font-semibold text-white">Estimated BPS / BTC Yield</span>{" "}
+          approximates Strategy&apos;s BTC-per-share efficiency using reported
+          outstanding shares rather than fully diluted assumptions.
+        </p>
+      </div>
     </section>
   );
 }
