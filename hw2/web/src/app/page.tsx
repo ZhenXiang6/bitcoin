@@ -6,15 +6,17 @@ export const revalidate = 28800;
 
 async function loadDashboardData() {
   try {
+    const summaryEnabled = hasOpenAiSummaryEnabled();
     const data = await getStrategyDashboardData(365);
-    const summary = hasOpenAiSummaryEnabled()
+    const summary = summaryEnabled
       ? await generateStrategySummary(data).catch(() => null)
       : null;
-    return { data, summary, error: null as string | null };
+    return { data, summary, summaryEnabled, error: null as string | null };
   } catch (error) {
     return {
       data: null,
       summary: null,
+      summaryEnabled: hasOpenAiSummaryEnabled(),
       error:
         error instanceof Error
           ? error.message
@@ -40,5 +42,11 @@ export default async function Home() {
     );
   }
 
-  return <Dashboard data={result.data} summary={result.summary} />;
+  return (
+    <Dashboard
+      data={result.data}
+      summary={result.summary}
+      summaryEnabled={result.summaryEnabled}
+    />
+  );
 }

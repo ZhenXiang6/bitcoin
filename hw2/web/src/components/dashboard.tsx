@@ -11,6 +11,7 @@ import type { StrategyDashboardData } from "@/lib/types";
 type DashboardProps = {
   data: StrategyDashboardData;
   summary: string | null;
+  summaryEnabled: boolean;
 };
 
 const RANGE_OPTIONS = [
@@ -26,9 +27,10 @@ function isDashboardErrorPayload(
   return "error" in value;
 }
 
-export function Dashboard({ data, summary }: DashboardProps) {
+export function Dashboard({ data, summary, summaryEnabled }: DashboardProps) {
   const [dashboardData, setDashboardData] = useState(data);
   const [aiSummary, setAiSummary] = useState(summary);
+  const [aiSummaryEnabled, setAiSummaryEnabled] = useState(summaryEnabled);
   const [selectedDays, setSelectedDays] = useState(data.meta.rangeDays);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -69,8 +71,10 @@ export function Dashboard({ data, summary }: DashboardProps) {
             summary?: string | null;
           };
           if (summaryPayload.enabled === false) {
+            setAiSummaryEnabled(false);
             setAiSummary(null);
           } else {
+            setAiSummaryEnabled(true);
             setAiSummary(summaryPayload.summary ?? null);
           }
         } else {
@@ -130,7 +134,7 @@ export function Dashboard({ data, summary }: DashboardProps) {
         />
 
         <SummaryCards current={dashboardData.current} />
-        <IndicatorExplainer />
+        <AiSummary enabled={aiSummaryEnabled} summary={aiSummary} />
         <MetricChart
           mode="mnav"
           series={dashboardData.series}
@@ -138,7 +142,7 @@ export function Dashboard({ data, summary }: DashboardProps) {
           statusNote={rangeStatus}
         />
         <MetricChart mode="valuation" series={dashboardData.series} />
-        <AiSummary summary={aiSummary} />
+        <IndicatorExplainer />
 
         <section className="rounded-2xl border border-white/20 bg-black/20 p-4 text-xs leading-6 text-slate-300">
           <p className="font-semibold uppercase tracking-[0.12em] text-slate-200">

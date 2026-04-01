@@ -606,23 +606,6 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     fallbackAvgEntryPriceUsd,
   );
   const series = sliceSeriesByDays(mergedSeries, requestedDays);
-  const officialCurrentMnav = toNumber(coingeckoProfile.m_nav);
-  if (series.length > 0 && officialCurrentMnav !== null && officialCurrentMnav > 0) {
-    const lastRow = series[series.length - 1];
-    const officialEnterpriseValueUsd = officialCurrentMnav * lastRow.btcNavUsd;
-    const totalDebtUsd = lastRow.totalDebtUsd ?? 0;
-    const cashAndEquivalentsUsd = lastRow.cashAndEquivalentsUsd ?? 0;
-
-    lastRow.enterpriseValueUsd = officialEnterpriseValueUsd;
-    lastRow.marketCapUsd =
-      officialEnterpriseValueUsd - totalDebtUsd + cashAndEquivalentsUsd;
-    lastRow.mNav = officialCurrentMnav;
-    lastRow.premiumToNavPct = (officialCurrentMnav - 1) * 100;
-
-    notes.push(
-      "Latest point is anchored to CoinGecko's published current mNAV to reduce live valuation-source drift versus the CoinGecko treasury page.",
-    );
-  }
   const lastRow = series[series.length - 1];
 
   if (!lastRow) {
