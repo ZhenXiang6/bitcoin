@@ -25,6 +25,10 @@ type BitcoinMarketChartResponse = {
   prices?: CoinGeckoChartPoint[];
 };
 
+type TransactionHistoryResponse = {
+  transactions?: unknown[];
+};
+
 const COINGECKO_BASE_URLS: Record<CoinGeckoTier, string> = {
   demo: "https://api.coingecko.com/api/v3",
   pro: "https://pro-api.coingecko.com/api/v3",
@@ -132,10 +136,10 @@ export async function getStrategyHoldingChart(days: number) {
 export async function getStrategyTransactions() {
   const allRows: unknown[] = [];
   const perPage = 250;
-  const maxPages = 8;
+  const maxPages = getConfiguredTier() === "pro" ? 8 : 1;
 
   for (let page = 1; page <= maxPages; page += 1) {
-    const pageRows = await fetchCoinGecko<unknown[]>(
+    const response = await fetchCoinGecko<TransactionHistoryResponse>(
       "/public_treasury/strategy/transaction_history",
       {
         per_page: String(perPage),
@@ -144,7 +148,8 @@ export async function getStrategyTransactions() {
       },
     );
 
-    if (!Array.isArray(pageRows) || pageRows.length === 0) {
+    const pageRows = Array.isArray(response.transactions) ? response.transactions : [];
+    if (pageRows.length === 0) {
       break;
     }
     allRows.push(...pageRows);

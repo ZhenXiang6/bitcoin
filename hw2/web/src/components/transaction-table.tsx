@@ -6,6 +6,10 @@ type TransactionTableProps = {
 };
 
 export function TransactionTable({ transactions }: TransactionTableProps) {
+  if (transactions.length === 0) {
+    return null;
+  }
+
   return (
     <section className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md md:p-6">
       <h3 className="text-lg font-semibold text-white">Recent BTC Treasury Transactions</h3>

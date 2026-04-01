@@ -28,6 +28,7 @@ type NormalizedTransactionRow = {
   transactionType: string;
   quantity: number;
   totalValueUsd: number;
+  averageEntryValueUsd: number | null;
   sourceUrl: string | null;
 };
 
@@ -73,17 +74,23 @@ function normalizeTransactionRow(row: unknown): NormalizedTransactionRow | null 
   }
   const raw = row as Record<string, unknown>;
   const dateValue = raw.date;
-  if (typeof dateValue !== "string") {
+  if (typeof dateValue !== "string" && typeof dateValue !== "number") {
     return null;
   }
 
   const quantity =
     toNumber(raw.quantity) ??
+    toNumber(raw.holding_net_change) ??
     toNumber(raw.amount) ??
     toNumber(raw.coin_amount) ??
     toNumber(raw.btc_amount);
   const totalValueUsd =
-    toNumber(raw.total_value_usd) ?? toNumber(raw.total_value) ?? toNumber(raw.value_usd);
+    toNumber(raw.total_value_usd) ??
+    toNumber(raw.transaction_value_usd) ??
+    toNumber(raw.total_value) ??
+    toNumber(raw.value_usd);
+  const averageEntryValueUsd =
+    toNumber(raw.average_entry_value_usd) ?? toNumber(raw.avg_entry_value_usd);
   const transactionType =
     typeof raw.transaction_type === "string"
       ? raw.transaction_type
@@ -106,6 +113,7 @@ function normalizeTransactionRow(row: unknown): NormalizedTransactionRow | null 
     transactionType,
     quantity,
     totalValueUsd,
+    averageEntryValueUsd,
     sourceUrl,
   };
 }
@@ -127,6 +135,27 @@ function buildAverageEntryRows(
   fallbackAvgEntryPriceUsd: number | null,
 ) {
   const sortedRows = sortByDateAsc(transactionRows);
+  const directRows = sortedRows
+    .filter(
+      (row) =>
+        row.averageEntryValueUsd !== null && row.averageEntryValueUsd > 0,
+    )
+    .map((row) => ({
+      date: row.date,
+      avgEntryPriceUsd: row.averageEntryValueUsd as number,
+    }));
+
+  if (directRows.length > 0) {
+    const latestByDate = new Map<string, number>();
+    for (const row of directRows) {
+      latestByDate.set(row.date, row.avgEntryPriceUsd);
+    }
+    return Array.from(latestByDate.entries()).map(([date, avgEntryPriceUsd]) => ({
+      date,
+      avgEntryPriceUsd,
+    }));
+  }
+
   const avgEntryByDate = new Map<string, number>();
   let cumulativeQuantity = 0;
   let cumulativeCostUsd = 0;
