@@ -10,13 +10,17 @@ import {
   getMstrProfile,
   getMstrSharesFloat,
 } from "@/lib/fmp";
+import { getStrategySharesOutstandingSeries } from "@/lib/sec";
+import type { SharesOutstandingPoint } from "@/lib/sec";
 import type {
   StrategyDashboardData,
   StrategySeriesRow,
   StrategyTransaction,
 } from "@/lib/types";
+import { getYahooHistoricalCloseSeries, type YahooClosePoint } from "@/lib/yahoo";
 
 type NumericPoint = [number, number];
+type MarketCapRow = { date: string; marketCap: number };
 
 type NormalizedTransactionRow = {
   date: string;
@@ -105,6 +109,69 @@ function normalizeTransactionRow(row: unknown): NormalizedTransactionRow | null 
   };
 }
 
+function sortByDateAsc<T extends { date: string }>(rows: T[]) {
+  return [...rows].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildEstimatedMarketCapRows(
+  closeRows: YahooClosePoint[],
+  sharesRows: SharesOutstandingPoint[],
+  fallbackShares: number | null,
+): MarketCapRow[] {
+  if (closeRows.length === 0) {
+    return [];
+  }
+
+  const sortedClose = sortByDateAsc(closeRows);
+  const sortedShares = sortByDateAsc(
+    sharesRows.filter(
+      (row) =>
+        Number.isFinite(row.sharesOutstanding) &&
+        row.sharesOutstanding > 0 &&
+        row.date.length >= 10,
+    ),
+  );
+
+  if (sortedShares.length === 0) {
+    if (!fallbackShares || fallbackShares <= 0) {
+      return [];
+    }
+    return sortedClose.map((row) => ({
+      date: row.date,
+      marketCap: row.close * fallbackShares,
+    }));
+  }
+
+  const output: MarketCapRow[] = [];
+  let sharesIndex = 0;
+  let lastShares: number | null = null;
+
+  for (const closeRow of sortedClose) {
+    while (
+      sharesIndex < sortedShares.length &&
+      sortedShares[sharesIndex].date <= closeRow.date
+    ) {
+      lastShares = sortedShares[sharesIndex].sharesOutstanding;
+      sharesIndex += 1;
+    }
+
+    if ((lastShares === null || lastShares <= 0) && fallbackShares && fallbackShares > 0) {
+      lastShares = fallbackShares;
+    }
+
+    if (lastShares === null || lastShares <= 0) {
+      continue;
+    }
+
+    output.push({
+      date: closeRow.date,
+      marketCap: closeRow.close * lastShares,
+    });
+  }
+
+  return output;
+}
+
 function buildMergedSeries(
   holdingsMap: Map<string, number>,
   holdingValueMap: Map<string, number>,
@@ -118,7 +185,6 @@ function buildMergedSeries(
     ...btcPriceMap.keys(),
     ...marketCapMap.keys(),
   ]);
-
   const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
 
   let lastHoldings: number | null = null;
@@ -205,42 +271,112 @@ function formatTransactions(rawRows: unknown[]): StrategyTransaction[] {
     }));
 }
 
-export async function getStrategyDashboardData(days = 365): Promise<StrategyDashboardData> {
-  const [coingeckoProfile, holdingChart, btcChart, transactionRows, fmpProfile, fmpShares] =
-    await Promise.all([
-      getStrategyProfile(),
-      getStrategyHoldingChart(days),
-      getBitcoinMarketChart(days),
-      getStrategyTransactions(),
-      getMstrProfile().catch(() => null),
-      getMstrSharesFloat().catch(() => null),
-    ]);
+function pickConstantFallbackMarketCap(
+  fmpProfileMarketCap: number | null,
+  coingeckoProfileMnav: number | null,
+  coingeckoTreasuryValue: number | null,
+) {
+  const fromCoinGecko =
+    coingeckoProfileMnav && coingeckoTreasuryValue
+      ? coingeckoProfileMnav * coingeckoTreasuryValue
+      : null;
+  return fmpProfileMarketCap ?? fromCoinGecko;
+}
 
-  let marketCapRows: Array<{ date: string; marketCap: number }> = [];
-  let marketCapSource = "FMP historical market cap";
+export async function getStrategyDashboardData(days = 365): Promise<StrategyDashboardData> {
+  const requestedDays = Math.min(Math.max(days, 30), 730);
+  const yahooDays = Math.min(requestedDays + 80, 730);
+
+  const [
+    coingeckoProfile,
+    holdingChart,
+    btcChart,
+    transactionRows,
+    yahooCloseRows,
+    secSharesRows,
+    fmpProfile,
+    fmpShares,
+  ] = await Promise.all([
+    getStrategyProfile(),
+    getStrategyHoldingChart(requestedDays),
+    getBitcoinMarketChart(requestedDays),
+    getStrategyTransactions(),
+    getYahooHistoricalCloseSeries("MSTR", yahooDays).catch(() => []),
+    getStrategySharesOutstandingSeries().catch(() => []),
+    getMstrProfile().catch(() => null),
+    getMstrSharesFloat().catch(() => null),
+  ]);
+
   const notes: string[] = [
     "mNAV formula in this project: marketCap / (btcHoldings x btcPrice).",
     "Market cap on non-trading dates is forward-filled to align daily BTC data.",
     "All values are USD-based daily approximations for educational analysis.",
   ];
 
-  try {
-    marketCapRows = await getMstrHistoricalMarketCap();
-    if (marketCapRows.length === 0) {
-      throw new FmpAccessError("FMP returned empty historical market-cap rows.");
-    }
-  } catch (error) {
-    const isAccessIssue = error instanceof FmpAccessError;
-    if (isAccessIssue) {
+  const fallbackShares = toNumber(fmpShares?.outstandingShares);
+  const estimatedMarketCapRows = buildEstimatedMarketCapRows(
+    yahooCloseRows,
+    secSharesRows,
+    fallbackShares,
+  );
+
+  let marketCapRows: MarketCapRow[] = [];
+  let fallbackMarketCap: number | null = null;
+  let marketCapSource = "Yahoo close x SEC shares outstanding";
+
+  if (estimatedMarketCapRows.length > 0) {
+    marketCapRows = estimatedMarketCapRows;
+    if (secSharesRows.length === 0 && fallbackShares && fallbackShares > 0) {
+      marketCapSource = "Yahoo close x FMP shares-float fallback";
       notes.push(
-        "FMP plan does not provide historical MSTR market cap. Dashboard falls back to current market cap from FMP profile.",
-      );
-    } else {
-      notes.push(
-        "FMP historical market cap fetch failed. Dashboard falls back to current market cap if available.",
+        "SEC shares-outstanding series unavailable. Used FMP shares-float as constant share count.",
       );
     }
-    marketCapSource = "FMP profile current marketCap (constant fallback)";
+  } else {
+    try {
+      marketCapRows = await getMstrHistoricalMarketCap();
+      if (marketCapRows.length > 0) {
+        marketCapSource = "FMP historical market cap fallback";
+        notes.push(
+          "Yahoo/SEC market-cap reconstruction unavailable. Fell back to FMP historical market cap.",
+        );
+      }
+    } catch (error) {
+      if (error instanceof FmpAccessError) {
+        notes.push(
+          "FMP historical market cap is restricted under current plan. Using constant market-cap fallback.",
+        );
+      } else {
+        notes.push(
+          "FMP historical market cap request failed. Using constant market-cap fallback.",
+        );
+      }
+    }
+  }
+
+  if (marketCapRows.length === 0) {
+    const fmpProfileMarketCap = toNumber(fmpProfile?.marketCap);
+    const coingeckoProfileMnav = toNumber(coingeckoProfile.m_nav);
+    const coingeckoTreasuryValue = toNumber(coingeckoProfile.total_treasury_value_usd);
+    fallbackMarketCap = pickConstantFallbackMarketCap(
+      fmpProfileMarketCap,
+      coingeckoProfileMnav,
+      coingeckoTreasuryValue,
+    );
+    marketCapSource = "Constant market-cap fallback (FMP profile or CoinGecko-derived)";
+  }
+
+  if (marketCapRows.length === 0 && (!fallbackMarketCap || fallbackMarketCap <= 0)) {
+    throw new Error(
+      "No usable MSTR market-cap source available. Yahoo/SEC and FMP sources were both unavailable.",
+    );
+  }
+
+  if (yahooCloseRows.length === 0) {
+    notes.push("Yahoo historical close series unavailable in this runtime (possible rate limit).");
+  }
+  if (secSharesRows.length === 0) {
+    notes.push("SEC shares-outstanding series unavailable in this runtime.");
   }
 
   const holdingsMap = pointsToMap(holdingChart.holdings);
@@ -249,20 +385,6 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
   const marketCapMap = new Map<string, number>(
     marketCapRows.map((row) => [row.date, row.marketCap]),
   );
-  const fallbackFromFmpProfile = toNumber(fmpProfile?.marketCap);
-  const fallbackFromCoinGecko =
-    toNumber(coingeckoProfile.m_nav) && toNumber(coingeckoProfile.total_treasury_value_usd)
-      ? (toNumber(coingeckoProfile.m_nav) ?? 0) *
-        (toNumber(coingeckoProfile.total_treasury_value_usd) ?? 0)
-      : null;
-  const fallbackMarketCap =
-    marketCapRows.length > 0 ? null : fallbackFromFmpProfile ?? fallbackFromCoinGecko;
-
-  if (marketCapRows.length === 0 && (!fallbackMarketCap || fallbackMarketCap <= 0)) {
-    throw new Error(
-      "No usable market-cap data for MSTR from the current FMP subscription. Please upgrade FMP plan or switch ticker.",
-    );
-  }
 
   const mergedSeries = buildMergedSeries(
     holdingsMap,
@@ -271,27 +393,18 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     marketCapMap,
     fallbackMarketCap,
   );
-  const series = sliceSeriesByDays(mergedSeries, days);
+  const series = sliceSeriesByDays(mergedSeries, requestedDays);
   const lastRow = series[series.length - 1];
 
   if (!lastRow) {
-    throw new Error("No merged series data available. Check API keys and plan limits.");
-  }
-
-  const profileMNav = toNumber(coingeckoProfile.m_nav);
-  if (fmpShares?.outstandingShares) {
-    notes.push(
-      `FMP shares-float snapshot available: outstandingShares=${Math.round(
-        fmpShares.outstandingShares,
-      ).toLocaleString("en-US")}.`,
-    );
+    throw new Error("No merged series data available. Check API keys and data-source limits.");
   }
 
   return {
     meta: {
       company: "Strategy",
       ticker: coingeckoProfile.symbol ?? fmpProfile?.symbol ?? "MSTR",
-      rangeDays: days,
+      rangeDays: requestedDays,
       generatedAt: new Date().toISOString(),
       marketCapSource,
     },
@@ -302,7 +415,7 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
       marketCapUsd: lastRow.marketCapUsd,
       mNav: lastRow.mNav,
       premiumToNavPct: lastRow.premiumToNavPct,
-      profileMNav,
+      profileMNav: toNumber(coingeckoProfile.m_nav),
     },
     series,
     transactions: formatTransactions(transactionRows),

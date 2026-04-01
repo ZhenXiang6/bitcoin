@@ -4,14 +4,14 @@
 
 Build a web-based dashboard focused on `Strategy` as a Digital Asset Treasury company and use a daily time-series indicator to help users observe the relationship between Strategy's Bitcoin treasury exposure and market valuation.
 
-This project will use two external APIs:
+This project will use one required API and one stock-market data path:
 
 1. `CoinGecko API`
    - For Strategy's Bitcoin treasury data
    - For Bitcoin historical price data
-2. `Financial Modeling Prep (FMP) API`
-   - For `MSTR` historical market capitalization
-   - Optional fallback for historical stock price if needed
+2. `Yahoo Finance + SEC data`
+   - For `MSTR` historical stock price
+   - For `MSTR` shares outstanding snapshots used to estimate market capitalization
 
 The core indicator of the project will be:
 
@@ -126,6 +126,59 @@ Expected fields:
    - `date`
    - `close`
 
+Note:
+
+1. `MSTR` historical endpoints on FMP may be blocked on free plans.
+2. Keep FMP only as optional fallback for current `marketCap` or `shares-float`.
+
+### 4.3 Yahoo Finance plus SEC Alternative
+
+Purpose:
+
+1. Replace blocked FMP historical endpoints for `MSTR`
+2. Build daily estimated market cap using stock close and shares outstanding
+
+Yahoo usage:
+
+1. Preferred implementation path: `yfinance`
+2. Underlying Yahoo chart endpoint commonly used by community libraries:
+
+```text
+GET https://query1.finance.yahoo.com/v8/finance/chart/MSTR?range=1y&interval=1d
+```
+
+Expected Yahoo fields:
+
+1. `timestamp`
+2. `indicators.quote[0].close`
+3. `meta.symbol`
+
+SEC usage:
+
+1. Use official SEC Company Facts JSON for share-count data
+
+```text
+GET https://data.sec.gov/api/xbrl/companyfacts/CIK0001050446.json
+```
+
+Relevant concepts to extract:
+
+1. `EntityCommonStockSharesOutstanding`
+2. `CommonStockSharesOutstanding`
+3. If the above are sparse, use `shares-float` fallback from FMP or the latest disclosed outstanding share count
+
+Daily market-cap estimate:
+
+```text
+estimatedMarketCap_t = yahooClose_t x sharesOutstanding_t
+```
+
+Important caveat:
+
+1. Yahoo Finance endpoints are not an official public API.
+2. Community tooling such as `yfinance` explicitly notes the data is for research and personal use.
+3. Yahoo can rate-limit requests, so the app must cache responses aggressively.
+
 ## 5. Data Pipeline Design
 
 ### 5.1 Time Range
@@ -153,11 +206,14 @@ Server-side flow:
 
 1. Fetch Strategy holding chart from CoinGecko
 2. Fetch BTC price chart from CoinGecko
-3. Fetch MSTR historical market cap from FMP
-4. Normalize all dates to `YYYY-MM-DD`
-5. Join the three datasets by date
-6. Compute derived metrics
-7. Return a clean dataset to the frontend
+3. Fetch MSTR historical close from Yahoo Finance
+4. Fetch share-count snapshots from SEC Company Facts
+5. Normalize all dates to `YYYY-MM-DD`
+6. Forward-fill share count between filing dates
+7. Compute estimated `marketCap = close x sharesOutstanding`
+8. Join all datasets by date
+9. Compute derived metrics
+10. Return a clean dataset to the frontend
 
 ### 5.3 Data Alignment Rules
 
@@ -169,7 +225,8 @@ Because APIs may use different timestamps or trading calendars, use these rules:
    - carry forward the most recent available `marketCap`
 4. If holdings do not change on a day:
    - use the value from CoinGecko's filled daily intervals
-5. Remove rows where core fields are still missing after alignment
+5. SEC share count should be forward-filled from the latest filing date
+6. Remove rows where core fields are still missing after alignment
 
 ### 5.4 Derived Metrics
 
@@ -187,6 +244,11 @@ Additional helpful metrics:
 holdingValueUsd = btcHoldings x btcPriceUsd
 marketCapToHoldingValueGap = marketCapUsd - btcNavUsd
 ```
+
+Approximation note:
+
+1. When using Yahoo plus SEC, `marketCapUsd` is an estimate based on close price times latest available outstanding shares.
+2. This is acceptable for coursework if the formula and limitation are stated explicitly in the report.
 
 ## 6. Recommended Tech Stack
 
@@ -226,6 +288,8 @@ src/
     indicator-explainer.tsx
   lib/
     coingecko.ts
+    yahoo.ts
+    sec.ts
     fmp.ts
     transform.ts
     types.ts
@@ -235,7 +299,8 @@ Environment variables:
 
 ```text
 COINGECKO_API_KEY=
-FMP_API_KEY=
+FMP_API_KEY= (optional fallback)
+SEC_USER_AGENT=project-name/1.0 (contact: email@example.com)
 ```
 
 ## 8. Backend Implementation Plan

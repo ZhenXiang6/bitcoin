@@ -3,7 +3,9 @@
 This project is a DAT-focused web dashboard for `Strategy (MSTR)` using:
 
 1. `CoinGecko API` for BTC treasury holdings and BTC market data
-2. `FMP API` for MSTR historical market cap
+2. `Yahoo Finance` (unofficial chart endpoint) for MSTR historical close
+3. `SEC Company Facts` for shares outstanding snapshots
+4. `FMP API` as optional fallback when Yahoo/SEC data is unavailable
 
 Core indicator:
 
@@ -18,7 +20,7 @@ Required:
 1. `Node.js >= 20`
 2. `npm`
 3. `COINGECKO_API_KEY`
-4. `FMP_API_KEY`
+4. `FMP_API_KEY` (optional but recommended as fallback)
 
 ## 2. Environment Variables
 
@@ -27,6 +29,7 @@ Create `web/.env.local`:
 ```env
 COINGECKO_API_KEY=your_coingecko_key
 FMP_API_KEY=your_fmp_key
+SEC_USER_AGENT=your_app_name/1.0 (contact: your_email@example.com)
 ```
 
 Do not expose these keys in client-side code.
@@ -72,7 +75,8 @@ Recommended method:
 3. Set `Root Directory` to `web`.
 4. In `Project Settings -> Environment Variables`, add:
    - `COINGECKO_API_KEY`
-   - `FMP_API_KEY`
+   - `FMP_API_KEY` (optional fallback)
+   - `SEC_USER_AGENT` (recommended for SEC access)
 5. Deploy.
 
 After deployment, verify:
@@ -118,5 +122,6 @@ If Vercel deployment succeeds but data is empty:
 If FMP returns 402 for `MSTR`:
 
 1. Your plan may block `historical-market-capitalization` for this symbol.
-2. The app will automatically fallback to current `marketCap` from `stable/profile`.
-3. Check the `Market Cap Source` label on the page header to confirm active mode.
+2. The app will use `Yahoo close x SEC shares` as the primary market-cap path.
+3. If Yahoo or SEC is unavailable at runtime, it may fallback to `stable/profile` current market cap.
+4. Check the `Market Cap Source` label on the page header to confirm active mode.

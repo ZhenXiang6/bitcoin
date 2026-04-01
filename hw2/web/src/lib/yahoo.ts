@@ -1,0 +1,130 @@
+type YahooChartResponse = {
+  chart?: {
+    result?: Array<{
+      timestamp?: number[];
+      indicators?: {
+        quote?: Array<{
+          close?: Array<number | null>;
+        }>;
+      };
+      meta?: {
+        symbol?: string;
+      };
+    }>;
+    error?: {
+      code?: string;
+      description?: string;
+    } | null;
+  };
+};
+
+export type YahooClosePoint = {
+  date: string;
+  close: number;
+};
+
+const YAHOO_HOSTS = [
+  "https://query1.finance.yahoo.com",
+  "https://query2.finance.yahoo.com",
+];
+
+function toDateStringFromSeconds(seconds: number) {
+  return new Date(seconds * 1000).toISOString().slice(0, 10);
+}
+
+function toUnixSeconds(days: number) {
+  return Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+}
+
+function buildYahooChartUrl(baseUrl: string, symbol: string, days: number) {
+  const url = new URL(`${baseUrl}/v8/finance/chart/${symbol}`);
+  url.searchParams.set("interval", "1d");
+  url.searchParams.set("period1", String(toUnixSeconds(days + 40)));
+  url.searchParams.set("period2", String(Math.floor(Date.now() / 1000)));
+  url.searchParams.set("includePrePost", "false");
+  url.searchParams.set("events", "history");
+  return url.toString();
+}
+
+function parseYahooCloseSeries(payload: YahooChartResponse): YahooClosePoint[] {
+  const chartError = payload.chart?.error;
+  if (chartError) {
+    throw new Error(
+      `Yahoo chart error: ${chartError.code ?? "unknown"} ${chartError.description ?? ""}`.trim(),
+    );
+  }
+
+  const firstResult = payload.chart?.result?.[0];
+  const timestamps = firstResult?.timestamp ?? [];
+  const closes = firstResult?.indicators?.quote?.[0]?.close ?? [];
+  if (timestamps.length === 0 || closes.length === 0) {
+    throw new Error("Yahoo returned empty chart result for MSTR.");
+  }
+
+  const seen = new Set<string>();
+  const rows: YahooClosePoint[] = [];
+
+  for (let index = 0; index < timestamps.length; index += 1) {
+    const seconds = timestamps[index];
+    const close = closes[index];
+    if (!Number.isFinite(seconds) || typeof close !== "number" || close <= 0) {
+      continue;
+    }
+    const date = toDateStringFromSeconds(seconds);
+    if (seen.has(date)) {
+      continue;
+    }
+    seen.add(date);
+    rows.push({ date, close });
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return rows;
+}
+
+export async function getYahooHistoricalCloseSeries(
+  symbol: string,
+  days: number,
+): Promise<YahooClosePoint[]> {
+  let lastError = "Unknown Yahoo request error";
+
+  for (const host of YAHOO_HOSTS) {
+    const url = buildYahooChartUrl(host, symbol, days);
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      },
+      next: { revalidate: 1800 },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      lastError = `Yahoo request failed (${response.status}) via ${host}: ${text}`;
+      continue;
+    }
+
+    const text = await response.text();
+    let payload: YahooChartResponse;
+    try {
+      payload = JSON.parse(text) as YahooChartResponse;
+    } catch {
+      lastError = `Yahoo response parse failed via ${host}.`;
+      continue;
+    }
+
+    try {
+      const series = parseYahooCloseSeries(payload);
+      if (series.length > 0) {
+        return series;
+      }
+      lastError = `Yahoo returned no valid close points via ${host}.`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Yahoo parsing error";
+    }
+  }
+
+  throw new Error(lastError);
+}
