@@ -463,6 +463,31 @@ function pickConstantFallbackMarketCap(
   return fmpProfileMarketCap ?? fromCoinGecko;
 }
 
+function computeFallbackDiagnostics(
+  marketCapSource: string,
+  series: StrategySeriesRow[],
+) {
+  const active =
+    marketCapSource.includes("fallback") || marketCapSource.includes("Constant");
+  if (!active || series.length === 0) {
+    return {
+      active: false,
+      source: null,
+      affectedRows: 0,
+      affectedRangeStart: null,
+      affectedRangeEnd: null,
+    };
+  }
+
+  return {
+    active: true,
+    source: marketCapSource,
+    affectedRows: series.length,
+    affectedRangeStart: series[0]?.date ?? null,
+    affectedRangeEnd: series[series.length - 1]?.date ?? null,
+  };
+}
+
 export async function getStrategyDashboardData(days = 365): Promise<StrategyDashboardData> {
   const allowedDays = new Set([7, 30, 180, 365]);
   const requestedDays = allowedDays.has(days) ? days : 365;
@@ -629,6 +654,13 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     throw new Error("No merged series data available. Check API keys and data-source limits.");
   }
 
+  const fallbackDiagnostics = computeFallbackDiagnostics(marketCapSource, series);
+  if (fallbackDiagnostics.active) {
+    notes.push(
+      `Fallback impact: ${fallbackDiagnostics.affectedRows} rows affected from ${fallbackDiagnostics.affectedRangeStart} to ${fallbackDiagnostics.affectedRangeEnd}.`,
+    );
+  }
+
   return {
     meta: {
       company: "Strategy",
@@ -636,6 +668,7 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
       rangeDays: requestedDays,
       generatedAt: new Date().toISOString(),
       marketCapSource,
+      fallbackDiagnostics,
     },
     current: {
       btcHoldings: lastRow.btcHoldings,

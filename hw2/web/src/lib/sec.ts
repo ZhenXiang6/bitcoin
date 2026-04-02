@@ -11,6 +11,12 @@ type SecConceptResponse = {
   >;
 };
 
+type NormalizedConceptPoint = {
+  date: string;
+  value: number;
+  filedDate: string | null;
+};
+
 export type SharesOutstandingPoint = {
   date: string;
   sharesOutstanding: number;
@@ -35,6 +41,12 @@ function normalizeDate(input: string) {
   return input.slice(0, 10);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function normalizeConceptRows(payload: SecConceptResponse) {
   const rows = [
     ...(payload.units?.shares ?? []),
@@ -44,9 +56,11 @@ function normalizeConceptRows(payload: SecConceptResponse) {
     ...(payload.units?.usd ?? []),
   ];
 
-  const output: FinancialMetricPoint[] = [];
+  const output: NormalizedConceptPoint[] = [];
   for (const row of rows) {
     const date = row.end ?? row.filed;
+    const filedDate =
+      typeof row.filed === "string" ? normalizeDate(row.filed) : null;
     if (
       typeof date === "string" &&
       typeof row.val === "number" &&
@@ -56,25 +70,53 @@ function normalizeConceptRows(payload: SecConceptResponse) {
       output.push({
         date: normalizeDate(date),
         value: row.val,
+        filedDate,
       });
     }
   }
   return output;
 }
 
-async function fetchSecConcept(taxonomy: string, concept: string) {
+async function fetchSecConcept(
+  taxonomy: string,
+  concept: string,
+): Promise<NormalizedConceptPoint[]> {
   const url = `${SEC_BASE_URL}/CIK${STRATEGY_CIK}/${taxonomy}/${concept}.json`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      "user-agent": secUserAgent(),
-    },
-    next: { revalidate: DATA_REVALIDATE_SECONDS },
-  });
+  let response: Response | null = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "user-agent": secUserAgent(),
+      },
+      next: { revalidate: DATA_REVALIDATE_SECONDS },
+    });
+
+    if (response.ok || response.status === 404) {
+      break;
+    }
+
+    if (
+      (response.status === 429 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504) &&
+      attempt < 2
+    ) {
+      await sleep(250 * (attempt + 1));
+      continue;
+    }
+    break;
+  }
+
+  if (!response) {
+    throw new Error(`SEC request failed before response for ${taxonomy}:${concept}`);
+  }
 
   if (response.status === 404) {
-    return [] as FinancialMetricPoint[];
+    return [] as NormalizedConceptPoint[];
   }
 
   if (!response.ok) {
@@ -88,17 +130,35 @@ async function fetchSecConcept(taxonomy: string, concept: string) {
   return normalizeConceptRows(payload);
 }
 
-function dedupeByDate(points: FinancialMetricPoint[]) {
-  const deduped = new Map<string, number>();
+function dedupeByDate(points: NormalizedConceptPoint[]) {
+  const deduped = new Map<string, NormalizedConceptPoint>();
   for (const point of points.sort((a, b) => a.date.localeCompare(b.date))) {
-    deduped.set(point.date, point.value);
+    const existing = deduped.get(point.date);
+    if (!existing) {
+      deduped.set(point.date, point);
+      continue;
+    }
+
+    const existingFiled = existing.filedDate ?? "";
+    const candidateFiled = point.filedDate ?? "";
+    if (candidateFiled > existingFiled) {
+      deduped.set(point.date, point);
+      continue;
+    }
+
+    if (candidateFiled === existingFiled && point.value > existing.value) {
+      deduped.set(point.date, point);
+    }
   }
-  return Array.from(deduped.entries()).map(([date, value]) => ({ date, value }));
+  return Array.from(deduped.values()).map((point) => ({
+    date: point.date,
+    value: point.value,
+  }));
 }
 
 async function getFirstAvailableConceptSeries(
   candidates: Array<{ taxonomy: string; concept: string }>,
-) {
+): Promise<FinancialMetricPoint[]> {
   for (const candidate of candidates) {
     const rows = await fetchSecConcept(candidate.taxonomy, candidate.concept);
     if (rows.length > 0) {
@@ -125,6 +185,14 @@ export async function getStrategySharesOutstandingSeries(): Promise<SharesOutsta
     { taxonomy: "dei", concept: "EntityCommonStockSharesOutstanding" },
     { taxonomy: "dei", concept: "CommonStockSharesOutstanding" },
     { taxonomy: "us-gaap", concept: "CommonStockSharesOutstanding" },
+    {
+      taxonomy: "us-gaap",
+      concept: "WeightedAverageNumberOfDilutedSharesOutstanding",
+    },
+    {
+      taxonomy: "us-gaap",
+      concept: "WeightedAverageNumberOfSharesOutstandingBasic",
+    },
   ]);
 
   return merged.map((row) => ({

@@ -37,6 +37,13 @@ export type StrategyDashboardData = {
     rangeDays: number;
     generatedAt: string;
     marketCapSource: string;
+    fallbackDiagnostics?: {
+      active: boolean;
+      source: string | null;
+      affectedRows: number;
+      affectedRangeStart: string | null;
+      affectedRangeEnd: string | null;
+    };
   };
   current: {
     btcHoldings: number;
