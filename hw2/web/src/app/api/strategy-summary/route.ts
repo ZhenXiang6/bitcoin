@@ -41,7 +41,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const days = parseDays(url.searchParams.get("days"));
     if (days === null) {
-      const summaries = await generateStrategySummaries();
+      const baseData = await getStrategyDashboardData(365);
+      const summaries = await generateStrategySummaries(baseData);
       return NextResponse.json(
         { enabled: true, summaries },
         {

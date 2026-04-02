@@ -10,11 +10,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await getStrategyDashboardData(365);
+    const data = await getStrategyDashboardData(365);
     let summaryStatus = "disabled";
 
     if (hasOpenAiSummaryEnabled()) {
-      await generateStrategySummaries();
+      await generateStrategySummaries(data);
       summaryStatus = "refreshed:7,30,180,365";
     }
 

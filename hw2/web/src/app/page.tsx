@@ -11,7 +11,7 @@ async function loadDashboardData() {
   try {
     const summaryEnabled = hasOpenAiSummaryEnabled();
     const data = await getStrategyDashboardData(365);
-    const summaries = summaryEnabled ? await generateStrategySummaries() : {};
+    const summaries = summaryEnabled ? await generateStrategySummaries(data) : {};
     return { data, summaries, summaryEnabled, error: null as string | null };
   } catch (error) {
     return {
