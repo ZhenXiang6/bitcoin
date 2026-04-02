@@ -124,6 +124,7 @@ export function Dashboard({ data, summaries, summaryEnabled }: DashboardProps) {
           rangeSelector={rangeSelector}
           statusNote={rangeStatus}
         />
+        <MetricChart mode="prices" series={dashboardData.series} />
         <MetricChart mode="valuation" series={dashboardData.series} />
         <IndicatorExplainer />
 
