@@ -285,6 +285,7 @@ function buildMergedSeries(
   holdingsMap: Map<string, number>,
   holdingValueMap: Map<string, number>,
   btcPriceMap: Map<string, number>,
+  mstrPriceMap: Map<string, number>,
   marketCapMap: Map<string, number>,
   debtMap: Map<string, number>,
   cashMap: Map<string, number>,
@@ -298,6 +299,7 @@ function buildMergedSeries(
     ...holdingsMap.keys(),
     ...holdingValueMap.keys(),
     ...btcPriceMap.keys(),
+    ...mstrPriceMap.keys(),
     ...marketCapMap.keys(),
     ...debtMap.keys(),
     ...cashMap.keys(),
@@ -309,6 +311,7 @@ function buildMergedSeries(
   let lastHoldings: number | null = null;
   let lastHoldingValue: number | null = null;
   let lastBtcPrice: number | null = null;
+  let lastMstrPrice: number | null = null;
   let lastMarketCap: number | null = null;
   let lastTotalDebt: number | null = null;
   let lastCashAndEquivalents: number | null = null;
@@ -326,6 +329,9 @@ function buildMergedSeries(
     }
     if (btcPriceMap.has(date)) {
       lastBtcPrice = btcPriceMap.get(date) ?? null;
+    }
+    if (mstrPriceMap.has(date)) {
+      lastMstrPrice = mstrPriceMap.get(date) ?? null;
     }
     if (marketCapMap.has(date)) {
       lastMarketCap = marketCapMap.get(date) ?? null;
@@ -375,6 +381,12 @@ function buildMergedSeries(
     const premiumToNavPct = (mNav - 1) * 100;
     const sharesOutstanding =
       lastSharesOutstanding !== null && lastSharesOutstanding > 0 ? lastSharesOutstanding : null;
+    const mstrPriceUsd =
+      lastMstrPrice !== null && lastMstrPrice > 0
+        ? lastMstrPrice
+        : sharesOutstanding !== null
+          ? lastMarketCap / sharesOutstanding
+          : null;
     const btcNavPerShareUsd =
       sharesOutstanding !== null ? btcNavUsd / sharesOutstanding : null;
     const estimatedBps =
@@ -390,6 +402,7 @@ function buildMergedSeries(
       date,
       btcHoldings: lastHoldings,
       btcPriceUsd: lastBtcPrice,
+      mstrPriceUsd,
       holdingValueUsd,
       btcNavUsd,
       marketCapUsd: lastMarketCap,
@@ -502,6 +515,9 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     secSharesRows,
     fallbackShares,
   );
+  const mstrPriceMap = new Map<string, number>(
+    yahooCloseRows.map((row) => [row.date, row.close]),
+  );
 
   let marketCapRows: MarketCapRow[] = [];
   let fallbackMarketCap: number | null = null;
@@ -596,6 +612,7 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     holdingsMap,
     holdingValueMap,
     btcPriceMap,
+    mstrPriceMap,
     marketCapMap,
     debtMap,
     cashMap,
@@ -623,6 +640,7 @@ export async function getStrategyDashboardData(days = 365): Promise<StrategyDash
     current: {
       btcHoldings: lastRow.btcHoldings,
       btcPriceUsd: lastRow.btcPriceUsd,
+      mstrPriceUsd: lastRow.mstrPriceUsd,
       btcNavUsd: lastRow.btcNavUsd,
       marketCapUsd: lastRow.marketCapUsd,
       enterpriseValueUsd: lastRow.enterpriseValueUsd,

@@ -2,6 +2,7 @@ export type StrategySeriesRow = {
   date: string;
   btcHoldings: number;
   btcPriceUsd: number;
+  mstrPriceUsd: number | null;
   holdingValueUsd: number;
   btcNavUsd: number;
   marketCapUsd: number;
@@ -40,6 +41,7 @@ export type StrategyDashboardData = {
   current: {
     btcHoldings: number;
     btcPriceUsd: number;
+    mstrPriceUsd: number | null;
     btcNavUsd: number;
     marketCapUsd: number;
     enterpriseValueUsd: number;
