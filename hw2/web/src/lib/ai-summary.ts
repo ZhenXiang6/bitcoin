@@ -1,5 +1,10 @@
 import { DATA_REVALIDATE_SECONDS, OPENAI_SUMMARY_MODEL, hasOpenAiSummaryEnabled } from "@/lib/config";
 import type { StrategyDashboardData } from "@/lib/types";
+import { getStrategyDashboardData } from "@/lib/transform";
+
+export const SUMMARY_RANGE_DAYS = [7, 30, 180, 365] as const;
+export type SummaryRangeDays = (typeof SUMMARY_RANGE_DAYS)[number];
+export type StrategySummaryMap = Partial<Record<SummaryRangeDays, string | null>>;
 
 type OpenAiResponse = {
   output_text?: string;
@@ -79,6 +84,21 @@ export async function generateStrategySummary(data: StrategyDashboardData) {
 
   const payload = (await response.json()) as OpenAiResponse;
   return extractOutputText(payload);
+}
+
+export async function generateStrategySummaries(): Promise<StrategySummaryMap> {
+  const summaries: StrategySummaryMap = {};
+
+  if (!hasOpenAiSummaryEnabled()) {
+    return summaries;
+  }
+
+  for (const days of SUMMARY_RANGE_DAYS) {
+    const data = await getStrategyDashboardData(days);
+    summaries[days] = await generateStrategySummary(data).catch(() => null);
+  }
+
+  return summaries;
 }
 
 export { hasOpenAiSummaryEnabled };

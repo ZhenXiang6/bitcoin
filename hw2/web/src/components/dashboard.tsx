@@ -6,11 +6,12 @@ import { DashboardHeader } from "@/components/dashboard-header";
 import { IndicatorExplainer } from "@/components/indicator-explainer";
 import { MetricChart } from "@/components/metric-chart";
 import { SummaryCards } from "@/components/summary-cards";
+import type { StrategySummaryMap } from "@/lib/ai-summary";
 import type { StrategyDashboardData } from "@/lib/types";
 
 type DashboardProps = {
   data: StrategyDashboardData;
-  summary: string | null;
+  summaries: StrategySummaryMap;
   summaryEnabled: boolean;
 };
 
@@ -27,10 +28,9 @@ function isDashboardErrorPayload(
   return "error" in value;
 }
 
-export function Dashboard({ data, summary, summaryEnabled }: DashboardProps) {
+export function Dashboard({ data, summaries, summaryEnabled }: DashboardProps) {
   const [dashboardData, setDashboardData] = useState(data);
-  const [aiSummary, setAiSummary] = useState(summary);
-  const [aiSummaryEnabled, setAiSummaryEnabled] = useState(summaryEnabled);
+  const [aiSummaries] = useState(summaries);
   const [selectedDays, setSelectedDays] = useState(data.meta.rangeDays);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -60,26 +60,6 @@ export function Dashboard({ data, summary, summaryEnabled }: DashboardProps) {
 
         setDashboardData(dataPayload);
         setSelectedDays(days);
-
-        const summaryResponse = await fetch(`/api/strategy-summary?days=${days}`, {
-          cache: "no-store",
-        });
-
-        if (summaryResponse.ok) {
-          const summaryPayload = (await summaryResponse.json()) as {
-            enabled?: boolean;
-            summary?: string | null;
-          };
-          if (summaryPayload.enabled === false) {
-            setAiSummaryEnabled(false);
-            setAiSummary(null);
-          } else {
-            setAiSummaryEnabled(true);
-            setAiSummary(summaryPayload.summary ?? null);
-          }
-        } else {
-          setAiSummary(null);
-        }
       } catch (error) {
         setLoadError(
           error instanceof Error ? error.message : "Unknown range-switch error",
@@ -134,7 +114,10 @@ export function Dashboard({ data, summary, summaryEnabled }: DashboardProps) {
         />
 
         <SummaryCards current={dashboardData.current} />
-        <AiSummary enabled={aiSummaryEnabled} summary={aiSummary} />
+        <AiSummary
+          enabled={summaryEnabled}
+          summary={aiSummaries[selectedDays as keyof typeof aiSummaries] ?? null}
+        />
         <MetricChart
           mode="mnav"
           series={dashboardData.series}

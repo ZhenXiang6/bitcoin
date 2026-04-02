@@ -1,18 +1,21 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { generateStrategySummary, hasOpenAiSummaryEnabled } from "@/lib/ai-summary";
+import {
+  generateStrategySummaries,
+  hasOpenAiSummaryEnabled,
+} from "@/lib/ai-summary";
 import { getStrategyDashboardData } from "@/lib/transform";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const data = await getStrategyDashboardData(365);
+    await getStrategyDashboardData(365);
     let summaryStatus = "disabled";
 
     if (hasOpenAiSummaryEnabled()) {
-      await generateStrategySummary(data);
-      summaryStatus = "refreshed";
+      await generateStrategySummaries();
+      summaryStatus = "refreshed:7,30,180,365";
     }
 
     revalidatePath("/");

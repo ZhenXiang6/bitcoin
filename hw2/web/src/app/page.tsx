@@ -1,5 +1,8 @@
 import { Dashboard } from "@/components/dashboard";
-import { generateStrategySummary, hasOpenAiSummaryEnabled } from "@/lib/ai-summary";
+import {
+  generateStrategySummaries,
+  hasOpenAiSummaryEnabled,
+} from "@/lib/ai-summary";
 import { getStrategyDashboardData } from "@/lib/transform";
 
 export const revalidate = 28800;
@@ -8,14 +11,12 @@ async function loadDashboardData() {
   try {
     const summaryEnabled = hasOpenAiSummaryEnabled();
     const data = await getStrategyDashboardData(365);
-    const summary = summaryEnabled
-      ? await generateStrategySummary(data).catch(() => null)
-      : null;
-    return { data, summary, summaryEnabled, error: null as string | null };
+    const summaries = summaryEnabled ? await generateStrategySummaries() : {};
+    return { data, summaries, summaryEnabled, error: null as string | null };
   } catch (error) {
     return {
       data: null,
-      summary: null,
+      summaries: {},
       summaryEnabled: hasOpenAiSummaryEnabled(),
       error:
         error instanceof Error
@@ -45,7 +46,7 @@ export default async function Home() {
   return (
     <Dashboard
       data={result.data}
-      summary={result.summary}
+      summaries={result.summaries}
       summaryEnabled={result.summaryEnabled}
     />
   );
